@@ -71,7 +71,11 @@ colors_warning_text=$(tput setaf 1)
 colors_notice_text=$(tput setaf 4)
 colors_script_text=$(tput setaf 0)
 colors_default=$(tput sgr0)
-echo "${colors_script_background}${colors_script_text}"
+
+function script_colors()
+{
+  echo "${colors_script_background}${colors_script_text}"
+}
 
 # Show an error message and exit
 function abort()
@@ -390,6 +394,7 @@ function install_unifi_version()
   fi
   question_prompt
   sudo apt-get install --yes unifi
+  script_colors
   # TODO: Add error handling in case install fails
   sleep 1
   sudo tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
@@ -439,6 +444,8 @@ EOF
   sudo ufw enable
   sudo ufw reload
 }
+
+script_colors
 
 print_header "Checking system...\\n"
 
