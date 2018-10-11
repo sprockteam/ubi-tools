@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC2143
+script_version="v0.2.5"
 ##############################################################################
-# Easy UBNT: UniFi Installer v0.2.1                                          #
+# Easy UBNT: UniFi Installer                                                 #
 ##############################################################################
 # A guided script to install and upgrade the UniFi Controller
 # https://github.com/sprockteam/easy-ubnt
@@ -77,35 +79,74 @@ function script_colors()
   echo "${colors_script_background}${colors_script_text}"
 }
 
+function cleanup()
+{
+  [[ "${restart_ssh_server:-}" ]] && sudo service ssh restart
+  [[ "${run_autoremove:-}" ]] && sudo apt-get clean --yes; sudo apt-get autoremove --yes
+  sleep 1
+  echo "${colors_default}"
+  clear
+  if [[ -f "/lib/systemd/system/unifi.service" ]]
+  then
+    echo "Dumping current UniFi Controller status..."
+    service unifi status | cat
+  else
+    echo "The UniFi Controller does not appear to be installed"
+  fi
+}
+trap cleanup EXIT
+
 # Show an error message and exit
 function abort()
 {
   echo -e "${colors_warning_text}##############################################################################\\n"
   error_message="ERROR!"
-  if [[ "${1:-}" ]]
-  then
-    error_message+=" ${1}"
-  fi
+  [[ "${1:-}" ]] && error_message+=" ${1}"
   echo -e "${error_message}\\n"
   exit 1
 }
 
-function cleanup()
+# Used to pause and ask if the user wants to continue the script
+function question_prompt()
 {
-  if [[ $restart_ssh_server ]]
-  then
-    sudo service ssh restart
-  fi
-  if [[ $run_autoremove ]]
-  then
-    sudo apt-get clean --yes
-    sudo apt-get autoremove --yes
-  fi
-  sleep 2
-  echo "${colors_default}"
-  clear
+  [[ "${1:-}" ]] && question="${1}" || question="Do you want to proceed?"
+  read -r -p "${colors_notice_text}${question} (y/n) ${colors_script_text}" yes_no
+  case "${yes_no}" in
+    [Nn]*)
+      echo
+      if [[ "${2:-}" == "return" ]]
+      then
+        return 1
+      else
+        exit
+      fi;;
+    *)
+      echo
+      return 0;;
+  esac
 }
-trap cleanup EXIT
+
+# Clears the screen and informs the user what task is running
+function print_header()
+{
+  clear
+  echo -e "${colors_notice_text}##############################################################################"
+  echo -e "# Easy UBNT: UniFi Installer ${script_version}                                          #"
+  echo -e "##############################################################################${colors_script_text}\\n"
+  [[ "${1:-}" ]] && show_notice "${1}"
+}
+
+# Print a notice to the screen
+function show_notice()
+{
+  [[ "${1:-}" ]] && echo -e "${colors_notice_text}${1}${colors_script_text}"
+}
+
+# Print a warning to the screen
+function show_warning()
+{
+  [[ "${1:-}" ]] && echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}"
+}
 
 # What UBNT currently recommends
 os_bit_recommended="64-bit"
@@ -134,130 +175,179 @@ restart_ssh_server=''
 run_autoremove=''
 java_version_installed=''
 mongo_version_installed=''
+mongo_repo_url=''
 unifi_version_installed=''
 unifi_version_recommended=''
 unifi_version_recommended_regex=''
 
-# Used to pause and ask if the user wants to continue the script
-function question_prompt()
+# Change some default OpenSSH server configurations for better security
+# https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f
+function setup_ssh_server()
 {
-  [[ "${1:-}" ]] && question="${1}" || question="Do you want to proceed?"
-  read -r -p "${colors_notice_text}${question} (y/n) ${colors_script_text}" yes_no
-  case "${yes_no}" in
-    [Yy]*)
-      echo
-      return 0;;
-    *)
-      echo
-      if [[ "${2:-}" = "return" ]]
-      then
-        return 1
-      else
-        exit
-      fi;;
-  esac
-}
-
-# Clears the screen and informs the user what task is running
-function print_header()
-{
-  clear
-  echo -e "${colors_notice_text}##############################################################################"
-  echo -e "# Easy UBNT: UniFi Installer                                                 #"
-  echo -e "##############################################################################${colors_script_text}\\n"
-  if [[ "${1:-}" ]]
-  then
-    echo -e "${colors_notice_text}${1}${colors_script_text}"
-  fi
-}
-
-# Print a notice to the screen
-function show_notice()
-{
-  if [[ "${1:-}" ]]
-  then
-    echo -e "${colors_notice_text}${1}${colors_script_text}"
-  fi
-}
-
-# Print a warning to the screen
-function show_warning()
-{
-  if [[ "${1:-}" ]]
-  then
-    echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}"
-  fi
-}
-
-function harden_ssh()
-{
-  # Change some default OpenSSH server configurations for better security
-  # https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f
-  if question_prompt "Do you want to harden the OpenSSH server settings?" "return"
-  then
-    sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-    sudo sed -i 's/^Protocol.*$/Protocol 2/' /etc/ssh/sshd_config
-    sudo sed -i 's/^PermitRootLogin.*$/PermitRootLogin no/' /etc/ssh/sshd_config
-    sudo sed -i 's/^UsePrivilegeSeparation.*$/UsePrivilegeSeparation yes/' /etc/ssh/sshd_config
-    sudo sed -i 's/^PermitEmptyPasswords.*$/PermitEmptyPasswords no/' /etc/ssh/sshd_config
-    sudo sed -i 's/^TCPKeepAlive.*$/TCPKeepAlive yes/' /etc/ssh/sshd_config
-    restart_ssh_server=true
-  fi
-}
-
-# Installs updates and basic system software
-function install_updates_dependencies()
-{
-  print_header "Checking updates, installing dependencies...\\n"
-  # Backup existing source lists
-  sudo find /etc/apt/sources.list.d -type f -not -name '*.bak' -exec mv '{}' '{}'.bak \;
-  find /etc/apt/sources.list.d -type f -not -name '*.bak' -printf '%f\n'
-  # Fix for stale sources after clean install in some cases
-  sudo rm -rf /var/lib/apt/lists/*
-  sudo apt-get clean --yes
-  if [[ $is_ubuntu ]]
-  then 
-    if [[ ! $(sudo apt-cache policy | grep --extended-regexp "archive.ubuntu.com.*${os_version_name_ubuntu}/main") ]]
-    then
-      echo "deb http://archive.ubuntu.com/ubuntu ${os_version_name_ubuntu} main universe" | sudo tee /etc/apt/sources.list.d/${os_version_name_ubuntu}-archive.list
-    fi
-    if [[ ! $(sudo apt-cache policy | grep --extended-regexp "security.ubuntu.com.*${os_version_name_ubuntu}-security/main") ]]
-    then
-      echo "deb http://security.ubuntu.com/ubuntu ${os_version_name_ubuntu}-security main universe" | sudo tee /etc/apt/sources.list.d/${os_version_name_ubuntu}-security.list
-    fi
-  fi
-  sudo apt-get update
-  sudo apt-get dist-upgrade --yes
-  sudo apt-get install --yes software-properties-common
-  sudo apt-get install --yes unattended-upgrades
   if [[ ! $(dpkg --list | grep "openssh-server") ]]
   then
+    echo
     if question_prompt "Do you want to install the OpenSSH server?" "return"
     then
       sudo apt-get install --yes openssh-server
     fi
   fi
-  if [[ $(dpkg --list | grep "openssh-server") && -f "/etc/ssh/sshd_config" ]]
+  sshd_config="/etc/ssh/sshd_config"
+  if [[ $(dpkg --list | grep "openssh-server") && -f "${sshd_config}" ]]
   then
-    harden_ssh
+    # Hardening the OpenSSH Server config according to best practices
+    # https://linux-audit.com/audit-and-harden-your-ssh-configuration/
+    # Using solution for sed to fail if search string not found
+    # https://stackoverflow.com/questions/15965073/return-code-of-sed-for-no-match#15966279
+    show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n\\nAnswer yes on each unless you know what you are doing..."
+    sudo cp "${sshd_config}" "${sshd_config}.bak"
+    sleep 1
+    if [[ ! $(grep "^Protocol 2" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Use SSH protocol version 2?" "return"
+      then
+        sudo sed -i 's/^.*Protocol.*$/,${s//Protocol 2/;b};$q1' "${sshd_config}" || echo "Protocol 2" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^PermitRootLogin no" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Disable root login?" "return"
+      then
+        sudo sed -i 's/^.*PermitRootLogin.*$/,${s//PermitRootLogin no/;b};$q1' "${sshd_config}" || echo "PermitRootLogin no" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^UsePrivilegeSeparation yes" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Use privilege separation?" "return"
+      then
+        sudo sed -i 's/^.*UsePrivilegeSeparation.*$/,${s//UsePrivilegeSeparation yes/;b};$q1' "${sshd_config}" || echo "UsePrivilegeSeparation yes" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^PermitEmptyPasswords no" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Disallow empty passwords?" "return"
+      then
+        sudo sed -i 's/^.*PermitEmptyPasswords.*$/,${s//PermitEmptyPasswords no/;b};$q1' "${sshd_config}" || echo "PermitEmptyPasswords no" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^PermitEmptyPasswords no" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Disallow empty passwords?" "return"
+      then
+        sudo sed -i 's/^.*TCPKeepAlive.*$/,${s//TCPKeepAlive yes/;b};$q1' "${sshd_config}" || echo "PermitEmptyPasswords no" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^X11Forwarding no" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Block X11 forwarding?" "return"
+      then
+        sudo sed -i 's/^.*X11Forwarding.*$/,${s//X11Forwarding no/;b};$q1' "${sshd_config}" || echo "X11Forwarding no" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^IgnoreRhosts yes" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Ignore rhosts authentication?" "return"
+      then
+        sudo sed -i 's/^.*IgnoreRhosts.*$/,${s//IgnoreRhosts yes/;b};$q1' "${sshd_config}" || echo "IgnoreRhosts yes" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    if [[ ! $(grep "^MaxAuthTries 3" "${sshd_config}") ]]
+    then
+      echo
+      if question_prompt "Do you want to limit authentication attempts?" "return"
+      then
+        sudo sed -i 's/^.*MaxAuthTries.*$/,${s//MaxAuthTries 3/;b};$q1' "${sshd_config}" || echo "MaxAuthTries 3" | sudo tee -a "${sshd_config}"
+      fi
+    fi
+    restart_ssh_server=true
   fi
-  run_autoremove=true
 }
 
-function install_java()
+function setup_sources()
 {
-  print_header "Installing Java...\\n"
-  if [[ "${os_version_name}" == "Xenial" || "${os_version_name}" == "Bionic" ]]
+  # Backup existing source lists
+  sudo find /etc/apt/sources.list.d -type f -not -name '*.bak' -exec mv '{}' '{}'.bak \;
+  # Fix for stale sources in some cases
+  sudo rm -rf /var/lib/apt/lists/*
+  sudo apt-get clean --yes
+  # Add sources for Java-related packages
+  if [[ $is_ubuntu ]]
+  then 
+    if [[ ! $(sudo apt-cache policy | grep --extended-regexp "archive.ubuntu.com.*${os_version_name_ubuntu}/main") ]]
+    then
+      echo "deb http://archive.ubuntu.com/ubuntu ${os_version_name_ubuntu} main universe" | sudo tee "/etc/apt/sources.list.d/${os_version_name_ubuntu}-archive.list"
+    fi
+    if [[ ! $(sudo apt-cache policy | grep --extended-regexp "security.ubuntu.com.*${os_version_name_ubuntu}-security/main") ]]
+    then
+      echo "deb http://security.ubuntu.com/ubuntu ${os_version_name_ubuntu}-security main universe" | sudo tee "/etc/apt/sources.list.d/${os_version_name_ubuntu}-security.list"
+    fi
+  fi
+  # Use WebUpd8 PPA to get Java 8 on older OS versions
+  # https://gist.github.com/pyk/19a619b0763d6de06786
+  if [[ "${os_version_name_ubuntu}" != "xenial" && "${os_version_name_ubuntu}" != "bionic" ]]
   then
-    sudo apt-get install --yes openjdk-8-jre-headless
-  else
     echo "deb http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | sudo tee /etc/apt/sources.list.d/webupd8team-java.list
     echo "deb-src http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | sudo tee -a /etc/apt/sources.list.d/webupd8team-java.list
     sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys EEA14886
     # Silently accept the license for Java
     # https://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option
     echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | sudo debconf-set-selections
-    sudo apt-get update
+  fi
+  # Setup Mongo package repository
+  # Mongo only distributes 64-bit packages
+  if [[ $is_64 && $is_ubuntu ]]
+  then
+    if [[ "${os_version_name}" == "Precise" ]]
+    then
+      mongo_repo_distro="trusty"
+    elif [[ "${os_version_name}" == "Bionic" ]]
+    then
+      mongo_repo_distro="xenial"
+    else
+      mongo_repo_distro="${os_version_name_ubuntu}"
+    fi
+    mongo_repo_url="deb [ arch=amd64 ] http://repo.mongodb.org/apt/ubuntu ${mongo_repo_distro}/mongodb-org/3.4 multiverse"
+  fi
+  if [[ $is_64 && $is_debian ]]
+  then
+    # Mongo 3.4 isn't compatible with Wheezy
+    if [[ "${os_version_name}" != "Wheezy" ]]
+    then
+      mongo_repo_url="deb http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main"
+    fi
+  fi
+  if [[ "${mongo_repo_url:-}" ]]
+  then
+    sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6
+    echo "${mongo_repo_url}" | sudo tee /etc/apt/sources.list.d/mongodb-org-3.4.list
+  fi
+  sudo apt-get update
+}
+
+# Installs updates and basic system software
+function install_updates_dependencies()
+{
+  print_header "Checking updates, installing dependencies...\\n"
+  sudo apt-get dist-upgrade --yes
+  sudo apt-get install --yes software-properties-common
+  sudo apt-get install --yes unattended-upgrades
+  run_autoremove=true
+}
+
+function install_java()
+{
+  print_header "Installing Java...\\n"
+  if [[ "${os_version_name_ubuntu}" == "xenial" || "${os_version_name_ubuntu}" == "bionic" ]]
+  then
+    sudo apt-get install --yes openjdk-8-jre-headless
+  else
     sudo apt-get install --yes oracle-java8-installer
     sudo apt-get install --yes oracle-java8-set-default
   fi
@@ -267,42 +357,12 @@ function install_java()
 
 function install_mongo()
 {
-  # Mongo only distributes 64-bit packages
-  # Currently this will only install Mongo 3.4
+  # Currently this will only install Mongo 3.4 for 64-bit
   # Skip if 32-bit and go with Mongo 2.6 bundled in the UniFi controller package
-  if [[ $is_64 ]]
+  if [[ $is_64 && $mongo_repo_url ]]
   then
-    mongo_repo_url=''
-    if [[ $is_ubuntu ]]
-    then
-      if [[ "${os_version_name_ubuntu}" == "precise" ]]
-      then
-        mongo_repo_distro="trusty"
-      elif [[ "${os_version_name_ubuntu}" == "bionic" ]]
-      then
-        mongo_repo_distro="xenial"
-      else
-        mongo_repo_distro="${os_version_name_ubuntu}"
-      fi
-      mongo_repo_url="deb [ arch=amd64 ] http://repo.mongodb.org/apt/ubuntu ${mongo_repo_distro}/mongodb-org/3.4 multiverse"
-    fi
-    if [[ $is_debian ]]
-    then
-      # Not compatible with Wheezy
-      if [[ "${os_version_name_debian}" == "wheezy" ]]
-      then
-        return
-      fi
-      mongo_repo_url="deb http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main"
-    fi
-    if [[ $mongo_repo_url ]]
-    then
-      print_header "Installing MongoDB...\\n"
-      sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6
-      echo "${mongo_repo_url}" | sudo tee /etc/apt/sources.list.d/mongodb-org-3.4.list
-      sudo apt-get update
-      sudo apt-get install --yes mongodb-org
-    fi
+    print_header "Installing MongoDB...\\n"
+    sudo apt-get install --yes mongodb-org
   fi
 }
 
@@ -368,15 +428,13 @@ function install_unifi()
 
 function install_unifi_version()
 {
-  if [[ ! "${1:-}" ]]
+  if [[ "${1:-}" ]]
   then
-    abort "No UniFi version specified to install"
-  else
     unifi_install_this_version="${1}"
+  else
+    abort "No UniFi version specified to install"
   fi
-  unifi_old_version="${unifi_version_installed}"
-  unifi_version_repo="unifi-${unifi_install_this_version}"
-  echo "deb http://www.ubnt.com/downloads/unifi/debian ${unifi_version_repo} ubiquiti" | sudo tee /etc/apt/sources.list.d/ubnt-unifi.list
+  echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${unifi_install_this_version} ubiquiti" | sudo tee /etc/apt/sources.list.d/ubnt-unifi.list
   sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 06E85760C0A52C50
   sudo apt-get update
   unifi_updated_version=$(sudo apt-cache policy unifi | grep "Candidate" | awk '{print $2}' | sed 's/-.*//g')
@@ -416,31 +474,34 @@ function setup_ufw()
   # TODO: Get ports from system.properties
   sudo apt-get install --yes ufw
   sudo tee "/etc/ufw/applications.d/unifi" > /dev/null <<EOF
-[unifi-cloud]
-title=UniFi Ports (Layer 3)
-description=Default ports used by a cloud-based UniFi Controller, used when not on the same logical network as the UniFi equipment
+[unifi]
+title=UniFi Ports
+description=Default ports used by the UniFi Controller
 ports=8080,8443,8880,8843,6789/tcp|3478/udp
 
 [unifi-local]
-title=UniFi Ports (Layer 2)
-description=Default ports by a local UniFi Controller, used when on the same logical network as the UniFi equipment
-ports=8080,8443,8880,8843,6789/tcp|1900,3478,10001/udp
+title=UniFi Ports for Local Discovery
+description=Ports used for discovery of devices on the local network by the UniFi Controller
+ports=1900,10001/udp
 EOF
-#'
-  show_notice "\\nIs your controller in the cloud or on your local network?\\n"
-  select controller in local cloud
-  do
-    case "${controller}" in
-      local)
-        sudo ufw delete allow from any to any app unifi-cloud
-        sudo ufw allow from any to any app unifi-local
-        break;;
-      *)
-        sudo ufw delete allow from any to any app unifi-local
-        sudo ufw allow from any to any app unifi-cloud
-        break;;
-    esac
-  done
+# End of output to file
+  echo
+  if question_prompt "Do you want to reset your current UFW rules?" "return"
+  then
+    sudo ufw --force reset
+  fi
+  sudo ufw allow from any to any app unifi
+  if [[ $(dpkg --list | grep "openssh-server") ]]
+  then
+    sudo ufw allow from any to any app OpenSSH
+  fi
+  echo
+  if question_prompt "Is your controller on your local network?" "return"
+  then
+    sudo ufw allow from any to any app unifi-local
+  else
+    sudo ufw delete allow from any to any app unifi-local
+  fi
   sudo ufw enable
   sudo ufw reload
 }
@@ -557,6 +618,7 @@ fi
 # Detect if Java is installed and what version
 if [[ "$(command -v java)" ]]
 then
+  # shellcheck disable=SC1117
   java_version_installed=$(sudo dpkg --list | grep --extended-regexp "(jdk|JDK)(.*)?(8)\W" --max-count=1 | awk '{print $3}' | sed 's/-.*//g')
   show_notice "Java ${java_version_installed} is currently installed\\n"
   if [[ ! $java_version_installed =~ $java_version_recommended_regx ]]
@@ -606,7 +668,9 @@ fi
 # Check to proceed after system information is displayed
 question_prompt
 
+setup_sources
 install_updates_dependencies
+setup_ssh_server
 install_java
 install_mongo
 install_unifi
