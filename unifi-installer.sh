@@ -130,32 +130,32 @@ function print_header()
   clear
   echo "${colors_notice_text}##############################################################################"
   echo "# Easy UBNT: UniFi Installer ${script_version}                                          #"
-  echo -e "##############################################################################${colors_script_text}\\n"
-  [[ "${1:-}" ]] && show_notice "${1}"
+  echo -e "##############################################################################${colors_script_text}"
+  [[ "${1:-}" ]] && show_notice "\\n${1}" || echo
 }
 
 # Show the license and disclaimer for this script
-print_license()
+function print_license()
 {
-  echo -e "${colors_warning_text}\\nMIT License\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n${colors_script_text}"
+  echo -e "${colors_warning_text}MIT License: THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n${colors_script_text}"
 }
 
 # Print a notice to the screen
 function show_notice()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_notice_text}${1}${colors_script_text}"
+  [[ "${1:-}" ]] && echo -e "${colors_notice_text}${1}${colors_script_text}" || echo
 }
 
 # Print a success message to the screen
 function show_success()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_success_text}${1}${colors_script_text}"
+  [[ "${1:-}" ]] && echo -e "${colors_success_text}${1}${colors_script_text}" || echo
 }
 
 # Print a warning to the screen
 function show_warning()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}"
+  [[ "${1:-}" ]] && echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}" || echo
 }
 
 # What UBNT currently recommends
@@ -742,7 +742,7 @@ function check_system()
     java_update_available=$(apt-cache policy "${java_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     if [[ "${java_update_available}" != '' && "${java_update_available}" != "${java_version_installed}" ]]
     then
-      show_notice "Java ${java_update_available} is available\\n"
+      show_success "Java ${java_update_available} is available\\n"
     elif [[ "${java_update_available}" != '' && "${java_update_available}" == "${java_version_installed}" ]]
     then
       show_success "Java ${java_version_installed} is current!\\n"
@@ -764,7 +764,7 @@ function check_system()
     mongo_update_available=$(apt-cache policy "${mongo_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/.*://' | sed 's/-.*//g')
     if [[ "${mongo_update_available}" != '' && "${mongo_update_available}" != "${mongo_version_installed}" ]]
     then
-      show_notice "Mongo ${mongo_update_available} is available\\n"
+      show_success "Mongo ${mongo_update_available} is available\\n"
     elif [[ "${mongo_update_available}" != '' && "${mongo_update_available}" == "${mongo_version_installed}" ]]
     then
       show_success "Mongo ${mongo_version_installed} is current!\\n"
@@ -785,7 +785,7 @@ function check_system()
     unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     if [[ "${unifi_update_available}" != '' && "${unifi_update_available}" != "${unifi_version_installed}" ]]
     then
-      show_notice "UniFi ${unifi_update_available} is available\\n"
+      show_success "UniFi ${unifi_update_available} is available\\n"
     elif [[ "${unifi_update_available}" != '' && "${unifi_update_available}" == "${unifi_version_installed}" ]]
     then
       show_success "UniFi ${unifi_version_installed} is current!\\n"
@@ -810,6 +810,9 @@ function check_system()
 # Do initial package source update before running system check
 apt-get update
 script_colors
+print_header
+print_license
+sleep 3
 check_system
 setup_sources
 install_updates_dependencies
