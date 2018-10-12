@@ -7,11 +7,11 @@ A Bash script used to guide an administrator through a recommended installation 
 ### How to Begin
 ```console
 wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/master/unifi-installer.sh -O unifi-installer.sh
-bash unifi-installer.sh
+sudo bash unifi-installer.sh
 ```
 
 ### Tracing the Script
 You can trace each command of the script to see what it's doing by using the -x option:
 ```console
-bash unifi-installer.sh -x
+sudo bash unifi-installer.sh -x
 ```
