@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034,SC2143
-script_version="v0.2.7"
+script_version="v0.3.1"
 ##############################################################################
 # Easy UBNT: UniFi Installer                                                 #
 ##############################################################################
@@ -9,15 +9,22 @@ script_version="v0.2.7"
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
 ##############################################################################
-# Copyrights and Mentions                                                    #
+# Copyrights and Contributors                                                #
 ##############################################################################
 # BASH3 Boilerplate
 # https://github.com/kvz/bash3boilerplate
 # MIT License
 # Copyright (c) 2013 Kevin van Zonneveld and contributors
 ###
-# UniFi Installation Scripts by Glenn Rietveld
+# UniFi Linux Utils
+# https://github.com/stevejenkins/unifi-linux-utils
+# MIT License
+# Copyright (c) 2017 Jenkins Holdings LLC.
 ###
+script_contributors="Contributors to this script:\\n
+Klint Van Tassel (SprockTech)
+Glenn Rietveld (AmazedMender16)
+Frank Gabriel (Frankedinven)"
 
 # Only run this script with bash
 if [ ! "$BASH_VERSION" ]
@@ -52,6 +59,7 @@ do
   case "${options}" in
     x)
       set -o xtrace
+      __script_debug="1"
       break;;
     *)
       break;;
@@ -99,7 +107,9 @@ function abort()
 {
   echo -e "${colors_warning_text}##############################################################################\\n"
   error_message="ERROR!"
-  [[ "${1:-}" ]] && error_message+=" ${1}"
+  if [[ "${1:-}" ]]; then
+    error_message+=" ${1}"
+  fi
   echo -e "${error_message}\\n"
   exit 1
 }
@@ -107,13 +117,16 @@ function abort()
 # Used to pause and ask if the user wants to continue the script
 function question_prompt()
 {
-  [[ "${1:-}" ]] && question="${1}" || question="Do you want to proceed?"
+  if [[ -n "${1:-}" ]]; then
+    question="${1}"
+  else
+    question="Do you want to proceed?"
+  fi
   read -r -p "${colors_notice_text}${question} (y/n) ${colors_script_text}" yes_no
   case "${yes_no}" in
     [Nn]*)
       echo
-      if [[ "${2:-}" == "return" ]]
-      then
+      if [[ "${2:-}" = "return" ]]; then
         return 1
       else
         exit
@@ -124,38 +137,62 @@ function question_prompt()
   esac
 }
 
+function get_user_input()
+{
+  user_input=''
+  if [[ -n "${1:-}" && -n "${2:-}" ]]; then
+    while [[ -z "${user_input:-}" ]]; do
+      read -r -p "${colors_notice_text}${1}${colors_script_text}" user_input
+      if [[ "${3:-}" = "optional" ]]; then
+        break
+      fi
+    done
+    eval "${2}=\"${user_input}\""
+  fi
+}
+
 # Clears the screen and informs the user what task is running
 function print_header()
 {
   clear
   echo "${colors_notice_text}##############################################################################"
   echo "# Easy UBNT: UniFi Installer ${script_version}                                          #"
-  echo -e "##############################################################################${colors_script_text}"
-  [[ "${1:-}" ]] && show_notice "\\n${1}" || echo
+  echo -e "##############################################################################${colors_script_text}\\n"
+  if [[ "${1:-}" ]]; then
+    show_notice "\\n${1}"
+  fi
 }
 
 # Show the license and disclaimer for this script
 function print_license()
 {
-  echo -e "${colors_warning_text}MIT License: THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n${colors_script_text}"
+  echo -e "${colors_warning_text}MIT License: THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND"
+  echo -e "Copyright (c) 2018 SprockTech, LLC and contributors\\n"
+  echo -e "${colors_notice_text}${script_contributors:-}${colors_script_text}"
 }
 
 # Print a notice to the screen
 function show_notice()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_notice_text}${1}${colors_script_text}" || echo
+  if [[ "${1:-}" ]]; then
+    echo -e "${colors_notice_text}${1}${colors_script_text}"
+  fi
 }
 
 # Print a success message to the screen
 function show_success()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_success_text}${1}${colors_script_text}" || echo
+  if [[ "${1:-}" ]]; then
+    echo -e "${colors_success_text}${1}${colors_script_text}"
+  fi
 }
 
 # Print a warning to the screen
 function show_warning()
 {
-  [[ "${1:-}" ]] && echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}" || echo
+  if [[ "${1:-}" ]]; then
+    echo -e "${colors_warning_text}WARNING: ${1}${colors_script_text}"
+  fi
 }
 
 # What UBNT currently recommends
@@ -169,7 +206,9 @@ mongo_version_recommended_regx='^3\.4'
 unifi_supported_versions=(5.6 5.8 5.9)
 unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
 unifi_repo_source_list="/etc/apt/sources.list.d/100-ubnt-unifi.list"
-unifi_system_properties="/usr/lib/unifi/data/system.properties"
+unifi_base_dir="/usr/lib/unifi"
+unifi_data_dir="${unifi_base_dir}/data"
+unifi_system_properties="${unifi_data_dir}/system.properties"
 
 # Get architecture and OS information
 architecture=$(uname --machine)
@@ -202,241 +241,120 @@ apt_sources_backup="/etc/apt/sources.list.backup-${script_time}"
 
 function setup_ssh_server()
 {
-  if [[ ! $(dpkg --list | grep "openssh-server") ]]
-  then
+  if ! dpkg --list | grep " openssh-server "; then
     echo
-    if question_prompt "Do you want to install the OpenSSH server?" "return"
-    then
+    if question_prompt "Do you want to install the OpenSSH server?" "return"; then
       apt-get install --yes openssh-server
     fi
   fi
-  if [[ $(dpkg --list | grep "openssh-server") && -f "${sshd_config}" ]]
-  then
+  if [[ $(dpkg --list | grep "openssh-server") && -f "${sshd_config}" ]]; then
     # Hardening the OpenSSH Server config according to best practices
     # https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f
     # https://linux-audit.com/audit-and-harden-your-ssh-configuration/
-    # Backup the current config
     cp "${sshd_config}" "${sshd_config}.bak-${script_time}"
     show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n"
-    if [[ $(grep ".*Port 22$" "${sshd_config}") || ! $(grep ".*Port.*" "${sshd_config}") ]]
-    then
-      if question_prompt "Change SSH port from the default 22?" "return"
-      then
+    if [[ $(grep ".*Port 22$" "${sshd_config}") || ! $(grep ".*Port.*" "${sshd_config}") ]]; then
+      if question_prompt "Change SSH port from the default 22?" "return"; then
         ssh_port=""
-        while [[ ! $ssh_port =~ ^[0-9]+$ ]]
-        do
+        while [[ ! $ssh_port =~ ^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]]; do
           read -r -p "Port number: " ssh_port
         done
-        if grep --quiet ".*Port.*" "${sshd_config}"
-        then
+        if grep --quiet ".*Port.*" "${sshd_config}"; then
           sed -i "s/^.*Port.*$/Port ${ssh_port}/" "${sshd_config}"
         else
           echo "Port ${ssh_port}" | tee -a "${sshd_config}"
         fi
       fi
     fi
-    show_notice "\\nAnswering yes to each of the following is recommended...\\n"
-    if ! grep --quiet "Protocol 2" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Use SSH protocol version 2?" "return"
-      then
-        if grep --quiet ".*Protocol.*" "${sshd_config}"
-        then
-          sed -i 's/^.*Protocol.*$/Protocol 2/' "${sshd_config}"
-        else
-          echo "Protocol 2" | tee -a "${sshd_config}"
+    declare -A ssh_changes=(
+      ['Protocol 2']='Use SSH protocol version 2 (recommended)?'
+      ['UsePrivilegeSeparation yes']='Enable privilege separation (recommended)?'
+      ['StrictModes yes']='Enforce strict security checks for SSH server (recommended)?'
+      ['PermitEmptyPasswords no']='Disallow empty passwords (recommended)?'
+      ['PermitRootLogin no']='Disallow root user to log into SSH (optional)?'
+      ['IgnoreRhosts yes']='Disable legacy rhosts authentication (recommended)?'
+      ['MaxAuthTries 5']='Limit authentication attempts to 5 (recommended)?'
+      #['TCPKeepAlive yes']='Enable TCP keep alive (optional)?'
+    )
+    for recommended_setting in "${!ssh_changes[@]}"; do
+      if ! grep --quiet "^${recommended_setting}" "${sshd_config}"; then
+        setting_name=$(echo "${recommended_setting}" | awk '{print $1}')
+        echo
+        if question_prompt "${ssh_changes[$recommended_setting]}" "return"; then
+          if grep --quiet ".*${setting_name}.*" "${sshd_config}"; then
+            sed -i "s/^.*${setting_name}.*$/${recommended_setting}/" "${sshd_config}"
+          else
+            echo "${recommended_setting}" | tee -a "${sshd_config}"
+          fi
         fi
       fi
-    fi
-    if ! grep --quiet "PermitRootLogin no" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Disable root login?" "return"
-      then
-        if grep --quiet ".*PermitRootLogin.*" "${sshd_config}"
-        then
-          sed -i 's/^.*PermitRootLogin.*$/PermitRootLogin no/' "${sshd_config}"
-        else
-          echo "PermitRootLogin no" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet "UsePrivilegeSeparation yes" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Use privilege separation?" "return"
-      then
-        if grep --quiet ".*UsePrivilegeSeparation.*" "${sshd_config}"
-        then
-          sed -i 's/^.*UsePrivilegeSeparation.*$/UsePrivilegeSeparation yes/' "${sshd_config}"
-        else
-          echo "UsePrivilegeSeparation yes" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet "PermitEmptyPasswords no" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Disallow empty passwords?" "return"
-      then
-        if grep --quiet ".*PermitEmptyPasswords.*" "${sshd_config}"
-        then
-          sed -i 's/^.*PermitEmptyPasswords.*$/PermitEmptyPasswords no/' "${sshd_config}"
-        else
-          echo "PermitEmptyPasswords no" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet "TCPKeepAlive yes" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Enable TCP keep alive?" "return"
-      then
-        if grep --quiet ".*TCPKeepAlive.*" "${sshd_config}"
-        then
-          sed -i 's/^.*TCPKeepAlive.*$/TCPKeepAlive yes/' "${sshd_config}"
-        else
-          echo "TCPKeepAlive yes" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet  "X11Forwarding no" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Block X11 forwarding?" "return"
-      then
-        if grep --quiet ".*X11Forwarding.*" "${sshd_config}"
-        then
-          sed -i 's/^.*X11Forwarding.*$/X11Forwarding no/' "${sshd_config}"
-        else
-          echo "X11Forwarding no" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet  "AllowTcpForwarding no" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Block local port forwarding?" "return"
-      then
-        if grep --quiet ".*AllowTcpForwarding.*" "${sshd_config}"
-        then
-          sed -i 's/^.*AllowTcpForwarding.*$/AllowTcpForwarding no/' "${sshd_config}"
-        else
-          echo "AllowTcpForwarding no" | tee -a "${sshd_config}"
-        fi
-        if grep --quiet ".*AllowStreamLocalForwarding.*" "${sshd_config}"
-        then
-          sed -i 's/^.*AllowStreamLocalForwarding.*$/AllowStreamLocalForwarding no/' "${sshd_config}"
-        else
-          echo "AllowStreamLocalForwarding no" | tee -a "${sshd_config}"
-        fi
-        if grep --quiet ".*GatewayPorts.*" "${sshd_config}"
-        then
-          sed -i 's/^.*GatewayPorts.*$/GatewayPorts no/' "${sshd_config}"
-        else
-          echo "GatewayPorts no" | tee -a "${sshd_config}"
-        fi
-        if grep --quiet ".*PermitTunnel.*" "${sshd_config}"
-        then
-          sed -i 's/^.*PermitTunnel.*$/PermitTunnel no/' "${sshd_config}"
-        else
-          echo "PermitTunnel no" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet  "IgnoreRhosts yes" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Disable legacy rhosts authentication?" "return"
-      then
-        if grep --quiet ".*IgnoreRhosts.*" "${sshd_config}"
-        then
-          sed -i 's/^.*IgnoreRhosts.*$/IgnoreRhosts yes/' "${sshd_config}"
-        else
-          echo "IgnoreRhosts yes" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
-    if ! grep --quiet  "MaxAuthTries 3" "${sshd_config}"
-    then
-      echo
-      if question_prompt "Limit authentication attempts to 3?" "return"
-      then
-        if grep --quiet ".*MaxAuthTries.*" "${sshd_config}"
-        then
-          sed -i 's/^.*MaxAuthTries.*$/MaxAuthTries 3/' "${sshd_config}"
-        else
-          echo "MaxAuthTries 3" | tee -a "${sshd_config}"
-        fi
-      fi
-    fi
+    done
+    # Deduplicate lines in the SSH server config
+    # https://stackoverflow.com/questions/1444406/how-can-i-delete-duplicate-lines-in-a-file-in-unix
+    awk '!seen[$0]++' "${sshd_config}" >/dev/null
     restart_ssh_server=true
   fi
 }
 
 function setup_sources()
 {
-  # Backup existing source lists
-  if [[ $(ls "${apt_sources}") ]]
-  then
-    mkdir "${apt_sources_backup}"
-    mv --force "${apt_sources}"* "${apt_sources_backup}"
-  fi
   # Fix for stale sources in some cases
   rm -rf /var/lib/apt/lists/*
   apt-get clean --yes
-  # Add sources for Java-related packages
-  if [[ $is_ubuntu ]]
-  then 
-    if [[ ! $(apt-cache policy | grep --extended-regexp "archive.ubuntu.com.*${os_version_name_ubuntu}/main") ]]
-    then
+  apt-get update
+  # Install basic package for repository management if necessary
+  dpkg --list | grep " software-properties-common " --quiet || apt-get install --yes software-properties-common
+  # Add source lists if needed
+  if [[ $is_ubuntu ]]; then
+    # Add archive and security sources for certain packages
+    apt-cache policy | grep "archive.ubuntu.com.*${os_version_name_ubuntu}/main" || \
       echo "deb http://archive.ubuntu.com/ubuntu ${os_version_name_ubuntu} main universe" | tee "/etc/apt/sources.list.d/${os_version_name_ubuntu}-archive.list"
-    fi
-    if [[ ! $(apt-cache policy | grep --extended-regexp "security.ubuntu.com.*${os_version_name_ubuntu}-security/main") ]]
-    then
+    apt-cache policy | grep "security.ubuntu.com.*${os_version_name_ubuntu}-security/main" || \
       echo "deb http://security.ubuntu.com/ubuntu ${os_version_name_ubuntu}-security main universe" | tee "/etc/apt/sources.list.d/${os_version_name_ubuntu}-security.list"
+    # Add repository for Certbot (Let's Encrypt)
+    if [[ "${os_version_name}" != "Precise" ]]; then
+      add-apt-repository ppa:certbot/certbot
     fi
+  elif [[ $is_debian ]]; then 
+    apt-cache policy | grep "debian.*${os_version_name_debian}-backports/main" || \
+      echo "deb http://ftp.debian.org/debian ${os_version_name_debian}-backports main" | tee "/etc/apt/sources.list.d/${os_version_name_debian}-backports.list"
   fi
-  # Use WebUpd8 PPA to get Java 8 on older OS versions
+  # Use WebUpd8 PPA to get Java 8 on certain OS versions
   # https://gist.github.com/pyk/19a619b0763d6de06786
-  if [[ "${os_version_name_ubuntu}" != "xenial" && "${os_version_name_ubuntu}" != "bionic" ]]
-  then
-    echo "deb http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | tee /etc/apt/sources.list.d/webupd8team-java.list
-    echo "deb-src http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | tee -a /etc/apt/sources.list.d/webupd8team-java.list
+  if [[ "${os_version_name_ubuntu}" != "xenial" && "${os_version_name_ubuntu}" != "bionic" ]]; then
     apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys EEA14886
+    apt-cache policy | grep "ppa.launchpad.net/webupd8team/java/ubuntu.*${os_version_name_ubuntu}/main" || \
+      echo "deb http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | tee /etc/apt/sources.list.d/webupd8team-java.list; \
+      echo "deb-src http://ppa.launchpad.net/webupd8team/java/ubuntu ${os_version_name_ubuntu} main" | tee -a /etc/apt/sources.list.d/webupd8team-java.list
     # Silently accept the license for Java
     # https://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option
     echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
   fi
   # Setup Mongo package repository
   # Mongo only distributes 64-bit packages
-  if [[ $is_64 && $is_ubuntu ]]
-  then
-    if [[ "${os_version_name}" == "Precise" ]]
-    then
+  if [[ $is_64 && $is_ubuntu ]]; then
+    # For Precise and Bionic, use closest available repo
+    if [[ "${os_version_name}" = "Precise" ]]; then
       mongo_repo_distro="trusty"
-    elif [[ "${os_version_name}" == "Bionic" ]]
-    then
+    elif [[ "${os_version_name}" = "Bionic" ]]; then
       mongo_repo_distro="xenial"
     else
       mongo_repo_distro="${os_version_name_ubuntu}"
     fi
     mongo_repo_url="deb [ arch=amd64 ] http://repo.mongodb.org/apt/ubuntu ${mongo_repo_distro}/mongodb-org/3.4 multiverse"
-  fi
-  if [[ $is_64 && $is_debian ]]
-  then
+  elif [[ $is_64 && $is_debian ]]; then
     # Mongo 3.4 isn't compatible with Wheezy
-    if [[ "${os_version_name}" != "Wheezy" ]]
-    then
+    if [[ "${os_version_name}" != "Wheezy" ]]; then
       mongo_repo_url="deb http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main"
     fi
   fi
-  if [[ "${mongo_repo_url:-}" ]]
-  then
+  if [[ "${mongo_repo_url:-}" ]]; then
     apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6
-    echo "${mongo_repo_url}" | tee /etc/apt/sources.list.d/mongodb-org-3.4.list
+    apt-cache policy | grep "repo.mongodb.org/apt/.*mongodb-org/3.4" || \
+      echo "${mongo_repo_url}" | tee /etc/apt/sources.list.d/mongodb-org-3.4.list
   fi
+  # Add UBNT package signing key
+  apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 06E85760C0A52C50
   apt-get update
 }
 
@@ -445,10 +363,13 @@ function install_updates_dependencies()
 {
   print_header "Checking updates, installing dependencies...\\n"
   apt-get dist-upgrade --yes
-  apt-get install --yes software-properties-common
-  apt-get install --yes unattended-upgrades
-  apt-get install --yes dirmngr
-  apt-get install --yes curl
+  dpkg --list | grep " unattended-upgrades " --quiet || apt-get install --yes unattended-upgrades
+  dpkg --list | grep " dirmngr " --quiet|| apt-get install --yes dirmngr
+  dpkg --list | grep " curl " --quiet || apt-get install --yes curl
+  dpkg --list | grep " dnsutils " --quiet || apt-get install --yes dnsutils
+  # Better random number generator, improves performance
+  # https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452
+  dpkg --list | grep " haveged " --quiet || apt-get install --yes haveged
   run_autoremove=true
 }
 
@@ -462,8 +383,8 @@ function install_java()
     apt-get install --yes oracle-java8-installer
     apt-get install --yes oracle-java8-set-default
   fi
-  apt-get install --yes jsvc
-  apt-get install --yes libcommons-daemon-java
+  dpkg --list | grep " jsvc " --quiet || apt-get install --yes jsvc
+  dpkg --list | grep " libcommons-daemon-java " --quiet || apt-get install --yes libcommons-daemon-java
 }
 
 function install_mongo()
@@ -473,7 +394,76 @@ function install_mongo()
   if [[ $is_64 && $mongo_repo_url ]]
   then
     print_header "Installing MongoDB...\\n"
-    apt-get install --yes mongodb-org
+    dpkg --list | grep " mongodb-org " --quiet || apt-get install --yes mongodb-org
+  fi
+}
+
+function install_certbot()
+{
+  if [[ $is_debian && "${os_version_name}" = "Jessie" ]]; then
+    source_backports="--target-release ${os_version_name_debian}-backports"
+  fi
+  if [[ "${os_version_name_ubuntu}" != "precise" ]]; then
+    print_header "Setting up Let's Encrypt...\\n"
+    dpkg --list | grep " certbot " --quiet || apt-get install --yes certbot "${source_backports:-}"
+    echo; get_user_input "Domain name to use for the SSL certificate: " "domain_name"
+    echo; get_user_input "Email address for renewal notifications (optional): " "email_address" "optional"
+    machine_ip_address=$(hostname -I | awk '{print $1}')
+    resolved_domain_name=$(dig +short "${domain_name:-}")
+    if [[ "${machine_ip_address}" != "${resolved_domain_name}" ]]; then
+      echo; show_warning "The domain ${domain_name} resolves to ${resolved_domain_name}\\n"
+      if ! question_prompt "" "return"; then
+        return
+      fi
+    fi
+    if [[ -z "${email_address:-}" ]]
+    then
+      email_option="--register-unsafely-without-email"
+    else
+      email_option="--email ${email_address}"
+    fi
+    if [[ -n "${domain_name:-}" ]]; then
+      pre_hook_script="/usr/local/sbin/pre-hook_${domain_name}.sh"
+      post_hook_script="/usr/local/sbin/post-hook_${domain_name}.sh"
+      letsencrypt_folder="/etc/letsencrypt/live/${domain_name}"
+      letsencrypt_privkey="${letsencrypt_folder}/privkey.pem"
+      letsencrypt_fullchain="${letsencrypt_folder}/fullchain.pem"
+      tee "${pre_hook_script}" >/dev/null <<EOF
+#!/usr/bin/env bash
+ufw allow http
+ufw allow https
+EOF
+# End of output to file
+      chmod +x "${pre_hook_script}"
+      tee "${post_hook_script}" >/dev/null <<EOF
+#!/usr/bin/env bash
+ufw delete allow http
+ufw delete allow https
+if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
+  cp ${unifi_data_dir}/keystore ${unifi_data_dir}/keystore.backup.$(date +%s)
+  openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letsencrypt_folder}/fullchain.p12 -name unifi -password pass:aircontrolenterprise
+  keytool -delete -alias unifi -keystore ${unifi_data_dir}/keystore -deststorepass aircontrolenterprise
+  keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${unifi_data_dir}/keystore -srckeystore ${letsencrypt_folder}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt
+  service unifi restart
+fi
+EOF
+# End of output to file
+      chmod +x "${post_hook_script}"
+      echo
+      if question_prompt "Do you want to force certificate renewal?" "return"; then
+        force_renewal="--force-renewal"
+      else
+        force_renewal="--keep-until-expiring"
+      fi
+      if [[ "${__script_debug:-}" ]]; then
+        run_mode="--dry-run"
+      else
+        run_mode="--quiet"
+      fi
+      certbot certonly --standalone --agree-tos --pre-hook "${pre_hook_script}" --post-hook "${post_hook_script}" --domain "${domain_name}" "${email_option}" "${force_renewal}" "${run_mode}" || \
+        show_warning "Certbot failed for domain name: ${domain_name}"
+      sleep 3
+    fi
   fi
 }
 
@@ -547,13 +537,12 @@ function install_unifi_version()
     abort "No UniFi version specified to install"
   fi
   echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${unifi_install_this_version} ubiquiti" | tee "${unifi_repo_source_list}"
-  apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 06E85760C0A52C50
   apt-get update
   unifi_updated_version=$(apt-cache policy unifi | grep "Candidate" | awk '{print $2}' | sed 's/-.*//g')
   if [[ "${unifi_version_installed}" == "${unifi_updated_version}" ]]
   then
     show_notice "\\nUniFi ${unifi_version_installed} is already installed\\n"
-    sleep 2
+    sleep 1
     return
   fi
   print_header "Installing UniFi version ${unifi_updated_version}...\\n"
@@ -566,7 +555,6 @@ function install_unifi_version()
   apt-get install --yes unifi
   script_colors
   # TODO: Add error handling in case install fails
-  sleep 1
   tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
   do
     if [[ "${log_line}" == *"${unifi_updated_version}"* ]]
@@ -576,7 +564,7 @@ function install_unifi_version()
       # pkill --parent $$ tail # This doesn't work as expected
     fi
   done
-  sleep 2
+  sleep 1
 }
 
 function setup_ufw()
@@ -584,7 +572,7 @@ function setup_ufw()
   print_header "Setting up UFW (Uncomplicated Firewall)\\n"
   # Use UFW for basic firewall protection
   # TODO: Get ports from system.properties
-  apt-get install --yes ufw
+  dpkg --list | grep " ufw " --quiet || apt-get install --yes ufw
   unifi_http_port=$(grep "unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8080"
   unifi_https_port=$(grep "unifi.https.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8443"
   unifi_portal_http_port=$(grep "portal.http.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8880"
@@ -592,7 +580,7 @@ function setup_ufw()
   unifi_throughput_port=$(grep "unifi.throughput.port" "${unifi_system_properties}" | sed 's/.*=//g') || "6789"
   unifi_stun_port=$(grep "unifi.stun.port" "${unifi_system_properties}" | sed 's/.*=//g') || "3478"
   ssh_port=$(grep "Port" "${sshd_config}" --max-count=1 | awk '{print $NF}')
-  tee "/etc/ufw/applications.d/unifi" > /dev/null <<EOF
+  tee "/etc/ufw/applications.d/unifi" >/dev/null <<EOF
 [unifi]
 title=UniFi Ports
 description=Default ports used by the UniFi Controller
@@ -604,13 +592,13 @@ description=Ports used for discovery of devices on the local network by the UniF
 ports=1900,10001/udp
 EOF
 # End of output to file
+  show_notice "\\nCurrent UFW status:\\n"
+  ufw status
   echo
-  if question_prompt "Do you want to reset your current UFW rules?" "return"
-  then
+  if question_prompt "Do you want to reset your current UFW rules?" "return"; then
     ufw --force reset
   fi
-  if [[ $(dpkg --list | grep "openssh-server") ]]
-  then
+  if [[ $(dpkg --list | grep "openssh-server") ]]; then
     ufw allow "${ssh_port}/tcp"
   fi
   ufw allow from any to any app unifi
@@ -623,8 +611,9 @@ EOF
   fi
   echo "y" | ufw enable
   ufw reload
-  echo
+  show_notice "\\nUpdated UFW status:\\n"
   ufw status
+  sleep 1
 }
 
 function check_system()
@@ -812,15 +801,16 @@ apt-get update
 script_colors
 print_header
 print_license
-sleep 3
+sleep 2
 check_system
 setup_sources
 install_updates_dependencies
 setup_ssh_server
+install_certbot
 install_java
 install_mongo
 install_unifi
 setup_ufw
 
 show_success "\\nDone!"
-sleep 4
+sleep 2
