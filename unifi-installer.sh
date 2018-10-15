@@ -8,8 +8,8 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-script_version="v0.3.2"
-script_contributors="Ubiquiti Community Contributors:
+__script_version="v0.3.3"
+__script_contributors="Ubiquiti Community Contributors:
 Klint Van Tassel (SprockTech)
 Glenn Rietveld (AmazedMender16)
 Frank Gabriel (Frankedinven)
@@ -205,18 +205,18 @@ function __eubnt_get_user_input() {
 function __eubnt_print_header() {
   clear
   echo "${__colors_notice_text}##############################################################################"
-  echo "# Easy UBNT: UniFi Installer ${script_version}                                          #"
+  echo "# Easy UBNT: UniFi Installer ${__script_version}                                          #"
   echo -e "##############################################################################${__colors_script_text}\\n"
   if [[ "${1:-}" ]]; then
-    __eubnt_show_notice "\\n${1}"
+    __eubnt_show_notice "${1}"
   fi
 }
 
 # Show the license and disclaimer for this script
 function __eubnt_print_license() {
-  echo -e "${__colors_warning_text}MIT License: THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND"
-  echo -e "Copyright (c) 2018 SprockTech, LLC and contributors\\n"
-  echo -e "${__colors_notice_text}${script_contributors:-}${__colors_script_text}"
+  __eubnt_show_warning "${__colors_warning_text}MIT License: THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n" "none"
+  __eubnt_show_notice "${__script_contributors:-}\\n"
+  __eubnt_show_warning "This is a guided script to install/upgrade the UniFi software,\\nand secure this server using best practices. It is intended to work on\\nsystems that will be dedicated as a UniFi controller.\\n"
 }
 
 # Print a notice to the screen
@@ -235,8 +235,12 @@ function __eubnt_show_success() {
 
 # Print a warning to the screen
 function __eubnt_show_warning() {
+  local warning_prefix="WARNING: "
   if [[ "${1:-}" ]]; then
-    echo -e "${__colors_warning_text}WARNING: ${1}${__colors_script_text}"
+    if [[ "${2:-}" = "none" ]]; then
+      warning_prefix=""
+    fi
+    echo -e "${__colors_warning_text}${warning_prefix}${1}${__colors_script_text}"
   fi
 }
 
@@ -499,6 +503,7 @@ EOF
       if [[ $__script_debug ]]; then
         run_mode="--dry-run"
       fi
+      # TODO: Add checks for existing certbot setup
       certbot certonly --standalone --agree-tos --pre-hook "${pre_hook_script}" --post-hook "${post_hook_script}" --domain "${domain_name}" "${email_option}" "${force_renewal}" "${run_mode}" || \
         __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
       sleep 3
@@ -508,7 +513,7 @@ EOF
 
 # Install OpenSSH server and harden the configuration
 function __eubnt_setup_ssh_server() {
-  if ! dpkg --list | grep " openssh-server "; then
+  if [[ ! $(dpkg --list | grep " openssh-server ") ]]; then
     echo
     if __eubnt_question_prompt "Do you want to install the OpenSSH server?" "return"; then
       apt-get install --yes openssh-server
@@ -659,11 +664,11 @@ function __eubnt_check_system() {
   else
     __eubnt_abort "This script is for Debian or Ubuntu\\n\\nYou appear to have: ${__os_all_info}"
   fi
-  if [[ -z $os_version_supported ]]; then
+  if [[ ! $os_version_supported ]]; then
     __eubnt_abort "${__os_name} ${__os_version} is not supported"
   fi
   # Unable to gather information about the OS
-  if [[ -z $__os_version || ( -z $__is_ubuntu && -z $__is_debian ) ]]; then
+  if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
     __eubnt_abort "Unable to detect system information"
   fi
   # Display information gathered about the OS
@@ -732,7 +737,7 @@ apt-get update
 __eubnt_script_colors
 __eubnt_print_header
 __eubnt_print_license
-sleep 2
+__eubnt_question_prompt
 __eubnt_check_system
 __eubnt_question_prompt
 __eubnt_setup_sources
