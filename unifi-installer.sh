@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.3.4"
+__script_version="v0.3.5"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), (ssawyer)"
@@ -29,10 +29,10 @@ if [ ! "$BASH_VERSION" ]; then
   exec bash "$0" "$@"
 fi
 
-# This script has not been tested when sourced by another script
+# This script has not been tested when called by another program
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
   echo -e "\\nPlease run this script directly\\n"
-  echo -e "Example: bash ${0}\\n"
+  echo -e "Example: sudo bash unifi-installer.sh\\n"
   exit
 fi
 
@@ -99,15 +99,16 @@ __hold_java=
 __hold_mongo=
 __hold_unifi=
 __install_mongo=
+__install_java=
 __install_webupd8_java=
 __script_debug=
 
 # Setup script colors to use
-__colors_script_background=$(tput setab 7)
+__colors_script_background=$(tput sgr0)
 __colors_warning_text=$(tput setaf 1)
-__colors_notice_text=$(tput setaf 4)
+__colors_notice_text=$(tput sgr0)
 __colors_success_text=$(tput setaf 5)
-__colors_script_text=$(tput setaf 0)
+__colors_script_text=$(tput sgr0)
 __colors_default=$(tput sgr0)
 
 ### Error/cleanup handling and trace/debugging option
@@ -115,6 +116,7 @@ __colors_default=$(tput sgr0)
 
 # Run miscellaneous tasks before exiting
 function __eubnt_cleanup_before_exit() {
+  echo "Cleaning up script, please wait...\\n"
   if [[ $__cleanup_restart_ssh_server ]]; then
     service ssh restart
   fi
@@ -179,8 +181,18 @@ function __eubnt_abort() {
 
 # Display a yes or know question and proceed accordingly
 function __eubnt_question_prompt() {
+  local yes_no=""
   local default_question="Do you want to proceed?"
-  read -r -p "${__colors_notice_text}${1:-$default_question} (y/n) ${__colors_script_text}" yes_no
+  local default_answer="y"
+  if [[ "${3:-}" = "n" ]]; then
+    default_answer="n"
+  fi
+  while [[ ! "${yes_no}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do
+    read -r -p "${__colors_notice_text}${1:-$default_question} (y/n, default ${default_answer}) ${__colors_script_text}" yes_no
+    if [[ "${yes_no}" = "" ]]; then
+      yes_no="${default_answer}"
+    fi
+  done
   case "${yes_no}" in
     [Nn]*)
       echo
@@ -191,7 +203,7 @@ function __eubnt_question_prompt() {
       else
         exit
       fi;;
-    *)
+    [Yy]*)
       # The default is to return true (yes) and continue
       echo
       return 0;;
@@ -213,9 +225,9 @@ function __eubnt_get_user_input() {
   fi
 }
 
-# Clears the screen and informs the user what task is running
+# Print a header that informs the user what task is running
 function __eubnt_print_header() {
-  clear
+  #clear
   echo "${__colors_notice_text}##############################################################################"
   echo "# Easy UBNT: UniFi Installer ${__script_version}                                          #"
   echo -e "##############################################################################${__colors_script_text}\\n"
@@ -265,9 +277,12 @@ function __eubnt_show_warning() {
 ### Main script functions
 ##############################################################################
 
-# Setup source lists for later use when installing and upgrading
+### Setup source lists for later use when installing and upgrading
 function __eubnt_setup_sources() {
-  dpkg --list | grep " dirmngr " --quiet || apt-get install --yes dirmngr
+  # Make sure dirmngr is installed for Debian
+  if [[ $__is_debian ]]; then
+    dpkg --list | grep " dirmngr " --quiet || apt-get install --yes dirmngr
+  fi
   # Install basic package for repository management if necessary
   dpkg --list | grep " software-properties-common " --quiet || apt-get install --yes software-properties-common
   # Add source lists if needed
@@ -297,6 +312,8 @@ function __eubnt_setup_sources() {
       # https://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option
       echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
       __install_webupd8_java=true
+    else
+      __install_java=true
     fi
   fi
   if [[ $__setup_source_mongo ]]; then
@@ -365,22 +382,25 @@ function __eubnt_install_updates_dependencies() {
 }
 
 function __eubnt_install_java() {
-  __eubnt_print_header "Installing Java...\\n"
-  # Install WebUpd8 team's Java for certain OS versions
-  if [[ $__install_webupd8_java ]]; then
-    apt-get install --yes oracle-java8-installer
-    apt-get install --yes oracle-java8-set-default
-  # Install regular Java for all others
-  else
-    apt-get install --yes openjdk-8-jre-headless
+  if [[ $__install_webupd8_java || $__install_java ]]; then
+    __eubnt_print_header "Installing Java...\\n"
+    # Install WebUpd8 team's Java for certain OS versions
+    if [[ $__install_webupd8_java ]]; then
+      apt-get install --yes oracle-java8-installer
+      apt-get install --yes oracle-java8-set-default
+    # Install regular Java for all others
+    else
+      dpkg --list | grep " ca-certificates-java " --quiet || apt-get install --yes ca-certificates-java
+      apt-get install --yes openjdk-8-jre-headless
+      local set_java_alternative="java-1.8.0-openjdk-amd64"
+      if [[ $__is_32 ]]; then
+        set_java_alternative="java-1.8.0-openjdk-i386"
+      fi
+      java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives -s "${set_java_alternative}"
+    fi
+    dpkg --list | grep " jsvc " --quiet || apt-get install --yes jsvc
+    dpkg --list | grep " libcommons-daemon-java " --quiet || apt-get install --yes libcommons-daemon-java
   fi
-  dpkg --list | grep " jsvc " --quiet || apt-get install --yes jsvc
-  dpkg --list | grep " libcommons-daemon-java " --quiet || apt-get install --yes libcommons-daemon-java
-  local set_java_alternative="java-1.8.0-openjdk-amd64"
-  if [[ $__is_32 ]]; then
-    set_java_alternative="java-1.8.0-openjdk-i386"
-  fi
-  java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives -s "${set_java_alternative}"
 }
 
 function __eubnt_install_mongo()
@@ -666,7 +686,7 @@ EOF
   __eubnt_show_notice "\\nCurrent UFW status:\\n"
   ufw status
   echo
-  if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return"; then
+  if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
     ufw --force reset
   fi
   if [[ $(dpkg --list | grep "openssh-server") ]]; then
@@ -674,7 +694,7 @@ EOF
   fi
   ufw allow from any to any app unifi >/dev/null
   echo
-  if __eubnt_question_prompt "Is this controller on your local network?" "return"; then
+  if __eubnt_question_prompt "Is this controller on your local network?" "return" "n"; then
     ufw allow from any to any app unifi-local >/dev/null
   else
     ufw --force delete allow from any to any app unifi-local >/dev/null
@@ -767,7 +787,7 @@ function __eubnt_check_system() {
   if [[ -n "${java_version_installed:-}" ]]; then
     java_update_available=$(apt-cache policy "${java_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     if [[ -n "${java_update_available}" && "${java_update_available}" != "${java_version_installed}" ]]; then
-      __eubnt_show_notice "Java ${java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} will be installed\\n"
+      __eubnt_show_notice "Java ${java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to upgrade Java to ${java_update_available}?" "return"; then
         __hold_java="${java_package_installed}"
       fi
@@ -810,7 +830,7 @@ function __eubnt_check_system() {
       fi
     fi
     if [[ ! $__downgrade_mongo && -n "${mongo_update_available}" && "${mongo_update_available}" != "${mongo_version_installed}" ]]; then
-      __eubnt_show_notice "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available"
+      __eubnt_show_notice "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to upgrade Mongo to ${mongo_update_available}?" "return"; then
         __hold_mongo="${mongo_package_installed}"
       fi
@@ -833,7 +853,7 @@ function __eubnt_check_system() {
       unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     fi
     if [[ -n "${unifi_update_available}" && "${unifi_update_available}" != "${__unifi_version_installed}" ]]; then
-      __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${unifi_update_available} is available"
+      __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${unifi_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to upgrade UniFi to ${unifi_update_available}?" "return"; then
         __hold_unifi="unifi"
       fi
@@ -853,7 +873,7 @@ function __eubnt_check_system() {
 __eubnt_script_colors
 __eubnt_print_header
 __eubnt_print_license
-__eubnt_question_prompt "Do you agree to the MIT License and want to proceed?"
+__eubnt_question_prompt "Do you agree to the MIT License and want to proceed?" "exit" "n"
 __eubnt_check_system
 __eubnt_question_prompt
 __eubnt_setup_sources
