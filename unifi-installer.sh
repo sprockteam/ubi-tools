@@ -227,7 +227,9 @@ function __eubnt_get_user_input() {
 
 # Print a header that informs the user what task is running
 function __eubnt_print_header() {
-  #clear
+  if [[ ! $__script_debug ]]; then
+    clear
+  fi
   echo "${__colors_notice_text}##############################################################################"
   echo "# Easy UBNT: UniFi Installer ${__script_version}                                          #"
   echo -e "##############################################################################${__colors_script_text}\\n"
