@@ -859,7 +859,7 @@ function __eubnt_check_system() {
   if [[ "${__disk_free_space%G*}" -lt "${__recommended_disk_free_space%G*}" ]]; then
     __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of disk free space\\n"
   else
-    if [[ "${__disk_free_space%G*}" -gt $(( "${__recommended_disk_free_space%G*}" + "${__recommended_swap_total_gb%G*}" )) ]]; then
+    if [[ "${__disk_free_space%G*}" -gt $(( ${__recommended_disk_free_space%G*} + ${__recommended_swap_total_gb%G*} )) ]]; then
       have_space_for_swap=true
     fi
   fi
