@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.3.5"
+__script_version="v0.3.7"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), (ssawyer)"
@@ -32,13 +32,17 @@ fi
 # This script has not been tested when called by another program
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
   echo -e "\\nPlease run this script directly\\n"
-  echo -e "Example: sudo bash unifi-installer.sh\\n"
   exit
 fi
 
 # This script requires root or sudo privilege to run properly
 if [[ $(id --user) -ne 0 ]]; then
-  echo -e "\\nPlease run this script as root or use sudo\\n"
+  echo -e "\\nPlease run this script as root or use sudo, for example:\\n"
+  if [[ $(lsb_release --id --short) = "Debian" ]]; then
+    echo -e "su root\\nbash unifi-installer.sh\\n"
+  else
+    echo -e "sudo bash unifi-installer.sh\\n"
+  fi
   exit
 fi
 
@@ -73,8 +77,9 @@ __swap_total="$(grep "SwapTotal" /proc/meminfo | awk '{printf "%.0fM", $2/1024}'
 
 # Initialize miscellaneous variables
 __unifi_version_installed=
+__unifi_update_available=
 __unifi_domain_name=
-__unifi_https_port="8443"
+__unifi_https_port=
 
 # Set various base folders
 # TODO: Make these dynamic
@@ -84,10 +89,13 @@ __unifi_data_dir="${__unifi_base_dir}/data"
 __letsencrypt_dir="/etc/letsencrypt"
 __sshd_config="/etc/ssh/sshd_config"
 
-# Recommendation and minimum requirements
+# Recommendations and minimum requirements
 __unifi_version_stable="5.8"
 __recommended_disk_free_space="10GB"
 __recommended_memory_total="2048MB"
+__recommended_memory_total_gb="2GB"
+__recommended_swap_total="4096MB"
+__recommended_swap_total_gb="4GB"
 
 # Initialize "boolean" variables as "false"
 __is_32=
@@ -127,8 +135,8 @@ function __eubnt_cleanup_before_exit() {
     service ssh restart
   fi
   if [[ $__unifi_version_installed ]]; then
-    unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
-    if [[ "${unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
+    __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+    if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
       echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" >/dev/null | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
       apt-get update &>/dev/null
     fi
@@ -138,12 +146,11 @@ function __eubnt_cleanup_before_exit() {
     apt-get autoremove --yes &>/dev/null
   fi
   echo "${__colors_default}"
-  #clear
-  if [[ -f "/lib/systemd/system/unifi.service" ]]; then
+  if [[ -f "/lib/systemd/system/unifi.service" && ! $__script_debug ]]; then
+    clear
     echo -e "Dumping current UniFi Controller status...\\n"
     service unifi status | cat
-  else
-    echo -e "UniFi Controller does not appear to be installed\\n"
+    echo
   fi
 }
 trap __eubnt_cleanup_before_exit EXIT
@@ -180,8 +187,9 @@ function __eubnt_script_colors() {
 # Show a basic error message and exit
 function __eubnt_abort() {
   echo -e "${__colors_warning_text}##############################################################################\\n"
-  echo -e error_message="ERROR! ${1:-}\\n"
+  echo -e "ERROR! ${1:-}\\n${__colors_script_text}"
   # TODO: Use __eubnt_error_report here
+  __script_debug=true
   exit 1
 }
 
@@ -436,42 +444,46 @@ function __eubnt_install_unifi()
   __eubnt_print_header "Installing UniFi Controller...\\n"
   local unifi_supported_versions=(5.6 5.8 5.9)
   local unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
-  local selected_unifi_version=""
-  declare -a unifi_versions_to_select=()
+  local selected_unifi_version=
   declare -a unifi_versions_to_install=()
-  if [[ $__is_unifi_installed ]]; then
+  declare -a unifi_versions_to_select=()
+  if [[ $__unifi_version_installed ]]; then
     __eubnt_show_notice "Version ${__unifi_version_installed} is currently installed\\n"
-    for version in "${!unifi_supported_versions[@]}"
-    do
-      if [[ "${unifi_supported_versions[$version]:2:1}" -ge "${__unifi_version_installed:2:1}" ]]
-      then
-        unifi_versions_to_select+=("${unifi_supported_versions[$version]}")
-      fi
-    done
-  else
-    unifi_versions_to_select=("${unifi_supported_versions[@]}")
   fi
+  for version in "${!unifi_supported_versions[@]}"; do
+    if [[ $__unifi_version_installed ]]; then
+      if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" && $__unifi_update_available ]]; then
+        unifi_versions_to_select+=("${__unifi_update_available}")
+      elif [[ "${unifi_supported_versions[$version]:2:1}" -gt "${__unifi_version_installed:2:1}" ]]; then
+        unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
+      fi
+    else
+      unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
+    fi
+  done
   if [[ "${#unifi_versions_to_select[@]}" -eq 1 ]]; then
-    selected_unifi_version="${unifi_versions_to_select[0]}"
+    selected_unifi_version="${unifi_versions_to_select[0]%.*}"
   elif [[ "${#unifi_versions_to_select[@]}" -gt 1 ]]; then
-    __eubnt_show_notice "Which controller do you want to install?\\n"
-    select version in "${unifi_versions_to_select[@]}"
-    do
+    unifi_versions_to_select+=("None")
+    __eubnt_show_notice "Which controller do you want to install or upgrade to?\\n"
+    select version in "${unifi_versions_to_select[@]}"; do
       case "${version}" in
         "")
           selected_unifi_version="${__unifi_version_stable}"
           break;;
         *)
-          selected_unifi_version="${version}"
+          if [[ "${version}" = "None" ]]; then
+            return
+          fi
+          selected_unifi_version="${version%.*}"
           break;;
       esac
     done
   else
-    __eubnt_abort "Unable to find any possible UniFi versions to install"
+    return
   fi
-  if [[ -n "${__unifi_version_installed:-}" ]]; then
-    for step in "${!unifi_historical_versions[@]}"
-    do
+  if [[ $__unifi_version_installed ]]; then
+    for step in "${!unifi_historical_versions[@]}"; do
       if [[ "${unifi_historical_versions[$step]:2:1}" -ge "${__unifi_version_installed:2:1}" && "${unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]
       then
         unifi_versions_to_install+=("${unifi_historical_versions[$step]}")
@@ -480,8 +492,7 @@ function __eubnt_install_unifi()
   else
     unifi_versions_to_install=("${selected_unifi_version}")
   fi
-  for version in "${!unifi_versions_to_install[@]}"
-  do
+  for version in "${!unifi_versions_to_install[@]}"; do
     __eubnt_install_unifi_version "${unifi_versions_to_install[$version]}"
   done
 }
@@ -506,21 +517,25 @@ function __eubnt_install_unifi_version()
     # TODO: Add API call to make a backup
     __eubnt_show_warning "Make sure you have a backup!\\n"
   fi
-  __eubnt_question_prompt
-  apt-get install --yes unifi
-  __unifi_version_installed="${unifi_updated_version}"
-  __eubnt_script_colors
-  # TODO: Add error handling in case install fails
-  tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
-  do
-    if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
-    then
-      __eubnt_show_notice "\\n${log_line}\\n"
-      pkill --full tail
-      # pkill --parent $$ tail # TODO: This doesn't work as expected
-    fi
-  done
-  sleep 1
+  if __eubnt_question_prompt "" "return"; then
+    apt-get install --yes unifi
+    __unifi_version_installed="${unifi_updated_version}"
+    __eubnt_script_colors
+    # TODO: Add error handling in case install fails
+    tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
+    do
+      if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
+      then
+        __eubnt_show_success "\\n${log_line}\\n"
+        pkill --full tail
+        # pkill --parent $$ tail # TODO: This doesn't work as expected
+      fi
+    done
+    sleep 1
+  else
+    echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
+    apt-get update
+  fi
 }
 
 function __eubnt_tweak_unifi() {
@@ -528,6 +543,8 @@ function __eubnt_tweak_unifi() {
   # unifi.https.ciphers=TLS_RSA_WITH_AES_256_CBC_SHA
   # unifi.https.sslEnabledProtocols=TLSv1.2
   # https://community.ubnt.com/t5/UniFi-Wireless/UniFI-Controller-TLS-1-2/m-p/1580362/highlight/true#M163612
+  # TODO: Tweak Java settings
+  # https://help.ubnt.com/hc/en-us/articles/115005159588-UniFi-How-to-Tune-the-Controller-for-High-Number-of-UniFi-Devices
   true
 }
 
@@ -677,23 +694,43 @@ function __eubnt_setup_ssh_server() {
 function __eubnt_setup_ufw() {
   __eubnt_print_header "Setting up UFW (Uncomplicated Firewall)..."
   echo
-  if [[ ! $(dpkg --list | grep " ufw " --quiet) || $(ufw status | grep "inactive") ]]; then
+  if [[ ! $(dpkg --list | grep " ufw ") || $(ufw status | grep "inactive") ]]; then
     if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
       return
     fi
   fi
   # Use UFW for basic firewall protection
   dpkg --list | grep " ufw " --quiet || apt-get install --yes ufw
-  local unifi_system_properties unifi_http_port unifi_https_port unifi_portal_http_port unifi_portal_https_port unifi_throughput_port unifi_stun_port ssh_port
-  unifi_system_properties="${__unifi_data_dir}/system.properties"
-  unifi_http_port=$(grep "unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8080"
-  unifi_https_port=$(grep "unifi.https.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8443"
-  unifi_portal_http_port=$(grep "portal.http.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8880"
-  unifi_portal_https_port=$(grep "portal.https.port" "${unifi_system_properties}" | sed 's/.*=//g') || "8843"
-  unifi_throughput_port=$(grep "unifi.throughput.port" "${unifi_system_properties}" | sed 's/.*=//g') || "6789"
-  unifi_stun_port=$(grep "unifi.stun.port" "${unifi_system_properties}" | sed 's/.*=//g') || "3478"
-  ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
-  tee "/etc/ufw/applications.d/unifi" >/dev/null <<EOF
+  local unifi_system_properties="${__unifi_data_dir}/system.properties"
+  if [[ -f "${__sshd_config}" ]]; then
+    local ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+  fi
+  if [[ -f "${unifi_system_properties}" ]]; then
+    local unifi_http_port=$(grep "^unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_http_port ]]; then
+      unifi_http_port="8080"
+    fi
+    local unifi_https_port=$(grep "^unifi.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_https_port ]]; then
+      unifi_https_port="8443"
+    fi
+    local unifi_portal_http_port=$(grep "^portal.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_portal_http_port ]]; then
+      unifi_portal_http_port="8880"
+    fi
+    local unifi_portal_https_port=$(grep "^portal.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_portal_https_port ]]; then
+      unifi_portal_https_port="8843"
+    fi
+    local unifi_throughput_port=$(grep "^unifi.throughput.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_throughput_port ]]; then
+      unifi_throughput_port="6789"
+    fi
+    local unifi_stun_port=$(grep "^unifi.stun.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    if [[ ! $unifi_stun_port ]]; then
+      unifi_stun_port="3478"
+    fi
+    tee "/etc/ufw/applications.d/unifi" >/dev/null <<EOF
 [unifi]
 title=UniFi Ports
 description=Default ports used by the UniFi Controller
@@ -705,27 +742,32 @@ description=Ports used for discovery of devices on the local network by the UniF
 ports=1900,10001/udp
 EOF
 # End of output to file
+  fi
   __eubnt_show_notice "\\nCurrent UFW status:\\n"
   ufw status
   echo
   if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
     ufw --force reset
   fi
-  if [[ $(dpkg --list | grep "openssh-server") ]]; then
+  if [[ "${ssh_port:-}" ]]; then
     ufw allow "${ssh_port}/tcp" >/dev/null
   fi
-  ufw allow from any to any app unifi >/dev/null
-  echo
-  if __eubnt_question_prompt "Is this controller on your local network?" "return" "n"; then
-    ufw allow from any to any app unifi-local >/dev/null
+  if [[ "${unifi_http_port:-}" && "${unifi_https_port:-}" ]]; then
+    __unifi_https_port="${unifi_https_port}"
+    ufw allow from any to any app unifi >/dev/null
+    echo
+    if __eubnt_question_prompt "Is this controller on your local network?" "return" "n"; then
+      ufw allow from any to any app unifi-local >/dev/null
+    else
+      ufw --force delete allow from any to any app unifi-local >/dev/null
+    fi
   else
-    ufw --force delete allow from any to any app unifi-local >/dev/null
+    __eubnt_show_warning "Unable to determine UniFi ports to allow. Is it installed?\\n"
   fi
   echo "y" | ufw enable >/dev/null
   ufw reload
   __eubnt_show_notice "\\nUpdated UFW status:\\n"
   ufw status
-  __unifi_https_port="${unifi_https_port}"
   sleep 1
 }
 
@@ -735,8 +777,13 @@ function __eubnt_setup_swap_file() {
   fallocate -l 4G /swapfile
   chmod 600 /swapfile
   mkswap /swapfile
-  swapon /swapfile
-  echo "/swapfile none swap sw 0 0" | tee -a /etc/fstab
+  if swapon /swapfile; then
+    echo "/swapfile none swap sw 0 0" | tee -a /etc/fstab
+  else
+    rm -rf /swapfile
+    __eubnt_show_warning "Unable to create swap file"
+  fi
+  echo
 }
 
 function __eubnt_check_system() {
@@ -802,24 +849,26 @@ function __eubnt_check_system() {
     __eubnt_abort "Unable to detect system information"
   fi
   # Display disk and memory space information
-  __eubnt_show_notice "System Vitals\\nDisk Free Space: ${__disk_free_space}\\nMemory Total Size: ${__memory_total}\\nSwap Total Size: ${__swap_total}\\n"
+  __eubnt_show_notice "System Vitals\\nDisk free space: ${__disk_free_space}\\nMemory total size: ${__memory_total}\\nSwap total size: ${__swap_total}\\n"
   # Display information gathered about the OS
   __eubnt_show_notice "System is ${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
   # Show warnings if detected system information is outside of recommendations from UBNT
   if [[ "${__os_version_name}" != "${os_version_recommended}" || "${os_bit}" != "${os_bit_recommended}" ]]; then
     __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${os_bit_recommended}\\n"
   fi
-  if [[ "${__disk_free_space:0:2}" -lt 10 ]]; then
+  if [[ "${__disk_free_space%G*}" -lt "${__recommended_disk_free_space%G*}" ]]; then
     __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of disk free space\\n"
   else
-    have_space_for_swap=true
+    if [[ "${__disk_free_space%G*}" -gt $(( "${__recommended_disk_free_space%G*}" + "${__recommended_swap_total_gb%G*}" )) ]]; then
+      have_space_for_swap=true
+    fi
   fi
-  if [[ $(echo "${__memory_total}" | sed 's/[^0-9]*//g') -lt 2048 ]]; then
-    __eubnt_show_warning "UBNT recommends at least ${__recommended_memory_total} of memory\\n"
+  if [[ "${__memory_total%M*}" -lt "${__recommended_memory_total%M*}" ]]; then
+    __eubnt_show_warning "UBNT recommends at least ${__recommended_memory_total_gb} of memory\\n"
   fi
-  if [[ "${__swap_total:0:1}" -eq 0 && $have_space_for_swap ]]; then
-    if __eubnt_question_prompt "Do you want to setup a 4GB swap file?" "return"; then
-      __eubnt_setup_swap_file "4G"
+  if [[ "${__swap_total%M*}" -eq 0 && $have_space_for_swap ]]; then
+    if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb} swap file?" "return"; then
+      __eubnt_setup_swap_file
     fi
   fi
   # Detect if Java is installed and what package and version
@@ -850,13 +899,12 @@ function __eubnt_check_system() {
   fi
   # Detect if Mongo is installed and what version
   if [[ $(dpkg --list | grep " mongodb.*-server ") ]]; then
-    mongo_version_installed=$(dpkg --list | grep " mongodb-org-server " | awk '{print $3}' | sed 's/.*://' | sed 's/-.*//g')
-    mongo_package_installed=$(dpkg --list | grep " mongodb-org-server " | awk '{print $2}')
-    if [[ $(dpkg --list | grep " mongodb-server ") ]]; then
-      __eubnt_show_warning "UniFi depends on 'mongodb-org-server' not 'mongodb-server'\\n"
-      if __eubnt_question_prompt "Do you want to remove the 'mongodb-server' package?" "return"; then
+    mongo_version_installed=$(dpkg --list | grep " mongodb.*-server " | awk '{print $3}' | sed 's/.*://' | sed 's/-.*//g')
+    mongo_package_installed=$(dpkg --list | grep " mongodb.*-server " | awk '{print $2}')
+    if [[ $(dpkg --list | grep " mongodb-server ") && $__is_64 ]]; then
+      __eubnt_show_warning "Mongo officially maintains 'mongodb-org' packages but you have 'mongodb' packages installed\\n"
+      if __eubnt_question_prompt "Do you want to remove the 'mongodb' packages and install 'mongodb-org' packages instead?" "return"; then
         __purge_mongo=true
-        __setup_source_mongo=true
       else
         __eubnt_show_warning "UniFi may not install correctly!\\n"
         __eubnt_question_prompt
@@ -864,7 +912,7 @@ function __eubnt_check_system() {
     fi
   fi
   # Check to see if Mongo is a recommended version and if there are any updates
-  if [[ -n "${mongo_version_installed:-}" ]]; then
+  if [[ -n "${mongo_version_installed:-}" && ! $__purge_mongo ]]; then
     mongo_update_available=$(apt-cache policy "${mongo_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/.*://' | sed 's/-.*//g')
     # shellcheck disable=SC2001
     mongo_version_check=$(echo "${mongo_version_installed:0:3}" | sed 's/\.//')
@@ -888,28 +936,29 @@ function __eubnt_check_system() {
       __eubnt_show_success "Mongo ${mongo_version_installed} is good!\\n"
     fi
   else
-    __eubnt_show_notice "Mongo 3.4.x will be installed\\n"
+    __eubnt_show_notice "Mongo will be installed\\n"
     __setup_source_mongo=true
   fi
   # Detect if UniFi is installed and what version
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __is_unifi_installed=true
     __unifi_version_installed=$(dpkg --list | grep " unifi " | awk '{print $3}' | sed 's/-.*//g')
-    unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
-    if [[ "${unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
+    __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+    if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
       echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" >/dev/null | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
       apt-get update &>/dev/null
-      unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+      __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     fi
-    if [[ -n "${unifi_update_available}" && "${unifi_update_available}" != "${__unifi_version_installed}" ]]; then
-      __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${unifi_update_available} is available\\n"
-      if ! __eubnt_question_prompt "Do you want to update UniFi to ${unifi_update_available}?" "return"; then
+    if [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" != "${__unifi_version_installed}" ]]; then
+      __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${__unifi_update_available} is available\\n"
+      if ! __eubnt_question_prompt "Do you want to update UniFi to ${__unifi_update_available}?" "return"; then
         __hold_unifi="unifi"
       fi
       echo
-    elif [[ -n "${unifi_update_available}" && "${unifi_update_available}" = "${__unifi_version_installed}" ]]
+    elif [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" = "${__unifi_version_installed}" ]]
     then
       __eubnt_show_success "UniFi ${__unifi_version_installed} is good!\\n"
+      __unifi_update_available=
     fi
   else
     __eubnt_show_notice "UniFi does not appear to be installed yet\n"
@@ -934,10 +983,12 @@ __eubnt_setup_ssh_server
 __eubnt_install_certbot
 __eubnt_setup_ufw
 __eubnt_show_success "\\nDone!"
-if [[ $__unifi_domain_name ]]; then
-  controller_address="${__unifi_domain_name}"
-else
-  controller_address="${__machine_ip_address}"
+if [[ $__unifi_https_port ]]; then
+  if [[ $__unifi_domain_name ]]; then
+    controller_address="${__unifi_domain_name}"
+  else
+    controller_address="${__machine_ip_address}"
+  fi
+  __eubnt_show_notice "\\nController URL: https://${controller_address}:${__unifi_https_port}/manage/\\n"
 fi
-__eubnt_show_notice "\\nController URL: https://${controller_address}:${__unifi_https_port}/manage/\\n"
 __eubnt_question_prompt "Are you ready to exit?"
