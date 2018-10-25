@@ -473,14 +473,14 @@ function __eubnt_install_unifi()
           break;;
         *)
           if [[ "${version}" = "None" ]]; then
-            return
+            return 0
           fi
           selected_unifi_version="${version%.*}"
           break;;
       esac
     done
   else
-    return
+    return 0
   fi
   if [[ $__unifi_version_installed ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
@@ -510,7 +510,7 @@ function __eubnt_install_unifi_version()
   if [[ "${__unifi_version_installed}" = "${unifi_updated_version}" ]]; then
     __eubnt_show_notice "\\nUniFi ${__unifi_version_installed} is already installed\\n"
     sleep 1
-    return
+    return 0
   fi
   __eubnt_print_header "Installing UniFi version ${unifi_updated_version}...\\n"
   if [[ $__unifi_version_installed ]]; then
@@ -559,11 +559,11 @@ function __eubnt_install_certbot() {
       certbot certificates
       if __eubnt_question_prompt "Does your current Let's Encrypt setup look correct?" "return"; then
         __unifi_domain_name=$(certbot certificates | grep "Domains: " | sed 's/.*:\ //')
-        return
+        return 0
       fi
     else
       if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return"; then
-      return
+      return 0
       fi
     fi
     dpkg --list | grep " certbot " --quiet || apt-get install --yes certbot "${source_backports}"
@@ -573,7 +573,7 @@ function __eubnt_install_certbot() {
     if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
       echo; __eubnt_show_warning "The domain ${domain_name} resolves to ${resolved_domain_name}\\n"
       if ! __eubnt_question_prompt "" "return"; then
-        return
+        return 0
       fi
     fi
     if [[ -n "${email_address}" ]]
@@ -696,7 +696,7 @@ function __eubnt_setup_ufw() {
   echo
   if [[ ! $(dpkg --list | grep " ufw ") || $(ufw status | grep "inactive") ]]; then
     if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
-      return
+      return 0
     fi
   fi
   # Use UFW for basic firewall protection
