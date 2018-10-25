@@ -57,7 +57,7 @@ __dir=$(cd "$(dirname "${0}")" && pwd)
 __file="${__dir}/$(basename "${0}")"
 __base=$(basename "${__file}" .sh)
 
-# Set script time, get architecture and OS information
+# Set script time, get system information
 __script_time=$(date +%s)
 __architecture=$(uname --machine)
 __os_all_info=$(uname --all)
@@ -66,6 +66,10 @@ __os_version_name=$(lsb_release --codename --short)
 __os_version_name_ubuntu_equivalent=""
 __os_name=$(lsb_release --id --short)
 __machine_ip_address=$(hostname -I | awk '{print $1}')
+__disk_total_space="$(df --human-readable . | grep "/" | awk '{print $2}')B"
+__disk_free_space="$(df --human-readable . | grep "/" | awk '{print $4}')B"
+__memory_total="$(grep "MemTotal" /proc/meminfo | awk '{printf "%.0fM", $2/1024}')B"
+__swap_total="$(grep "SwapTotal" /proc/meminfo | awk '{printf "%.0fM", $2/1024}')B"
 
 # Initialize miscellaneous variables
 __unifi_version_installed=
@@ -80,8 +84,10 @@ __unifi_data_dir="${__unifi_base_dir}/data"
 __letsencrypt_dir="/etc/letsencrypt"
 __sshd_config="/etc/ssh/sshd_config"
 
-# Recommended and stable software versions
+# Recommendation and minimum requirements
 __unifi_version_stable="5.8"
+__recommended_disk_free_space="10GB"
+__recommended_memory_total="2048MB"
 
 # Initialize "boolean" variables as "false"
 __is_32=
@@ -116,7 +122,7 @@ __colors_default=$(tput sgr0)
 
 # Run miscellaneous tasks before exiting
 function __eubnt_cleanup_before_exit() {
-  echo "Cleaning up script, please wait...\\n"
+  echo "Cleaning up script, please wait..."
   if [[ $__cleanup_restart_ssh_server ]]; then
     service ssh restart
   fi
@@ -134,7 +140,7 @@ function __eubnt_cleanup_before_exit() {
   echo "${__colors_default}"
   #clear
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
-    echo "Dumping current UniFi Controller status..."
+    echo -e "Dumping current UniFi Controller status...\\n"
     service unifi status | cat
   else
     echo -e "UniFi Controller does not appear to be installed\\n"
@@ -398,7 +404,7 @@ function __eubnt_install_java() {
       if [[ $__is_32 ]]; then
         set_java_alternative="java-1.8.0-openjdk-i386"
       fi
-      java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives -s "${set_java_alternative}"
+      java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives --set "${set_java_alternative}"
     fi
     dpkg --list | grep " jsvc " --quiet || apt-get install --yes jsvc
     dpkg --list | grep " libcommons-daemon-java " --quiet || apt-get install --yes libcommons-daemon-java
@@ -526,14 +532,22 @@ function __eubnt_tweak_unifi() {
 }
 
 function __eubnt_install_certbot() {
-  local source_backports domain_name email_address resolved_domain_name email_option
+  local source_backports domain_name email_address resolved_domain_name email_option run_certbot
   if [[ "${__os_version_name}" = "jessie" ]]; then
     source_backports="--target-release ${__os_version_name}-backports"
   fi
   if [[ "${__os_version_name}" != "precise" && "${__os_version_name}" != "wheezy" ]]; then
     __eubnt_print_header "Setting up Let's Encrypt...\\n"
-    if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return"; then
+    if [[ $(dpkg --list | grep " certbot ") && ! $(certbot certificates | grep "No certs found") ]]; then
+      certbot certificates
+      if __eubnt_question_prompt "Does your current Let's Encrypt setup look correct?" "return"; then
+        __unifi_domain_name=$(certbot certificates | grep "Domains: " | sed 's/.*:\ //')
+        return
+      fi
+    else
+      if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return"; then
       return
+      fi
     fi
     dpkg --list | grep " certbot " --quiet || apt-get install --yes certbot "${source_backports}"
     echo; __eubnt_get_user_input "Domain name to use for the SSL certificate: " "domain_name"
@@ -604,7 +618,7 @@ EOF
 
 # Install OpenSSH server and harden the configuration
 function __eubnt_setup_ssh_server() {
-  __eubnt_print_header "Setting up OpenSSH Server"
+  __eubnt_print_header "Setting up OpenSSH Server..."
   if [[ ! $(dpkg --list | grep " openssh-server ") ]]; then
     echo
     if __eubnt_question_prompt "Do you want to install the OpenSSH server?" "return"; then
@@ -661,7 +675,13 @@ function __eubnt_setup_ssh_server() {
 }
 
 function __eubnt_setup_ufw() {
-  __eubnt_print_header "Setting up UFW (Uncomplicated Firewall)"
+  __eubnt_print_header "Setting up UFW (Uncomplicated Firewall)..."
+  echo
+  if [[ ! $(dpkg --list | grep " ufw " --quiet) || $(ufw status | grep "inactive") ]]; then
+    if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
+      return
+    fi
+  fi
   # Use UFW for basic firewall protection
   dpkg --list | grep " ufw " --quiet || apt-get install --yes ufw
   local unifi_system_properties unifi_http_port unifi_https_port unifi_portal_http_port unifi_portal_https_port unifi_throughput_port unifi_stun_port ssh_port
@@ -709,11 +729,22 @@ EOF
   sleep 1
 }
 
+function __eubnt_setup_swap_file() {
+  # Recommended by CrossTalk Solutions
+  # https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/
+  fallocate -l 4G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo "/swapfile none swap sw 0 0" | tee -a /etc/fstab
+}
+
 function __eubnt_check_system() {
   # Fix for stale sources in some cases
   rm -rf /var/lib/apt/lists/*
+  echo -e "Checking for existing package updates, please wait...\\n"
   apt-get clean --yes
-  apt-get update
+  apt-get update &>/dev/null
   __eubnt_print_header "Checking system...\\n"
   # What UBNT currently recommends
   local os_version_name_display os_version_supported
@@ -722,6 +753,7 @@ function __eubnt_check_system() {
   local mongo_version_recommended="3.4.x"
   local ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
   local debian_supported_versions=("wheezy" "jessie" "stretch")
+  local have_space_for_swap=
   # Only 32-bit and 64-bit are supported (i.e. not ARM)
   if [[ "${__architecture}" = "i686" ]]; then
     __is_32=true
@@ -769,11 +801,26 @@ function __eubnt_check_system() {
   if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
     __eubnt_abort "Unable to detect system information"
   fi
+  # Display disk and memory space information
+  __eubnt_show_notice "System Vitals\\nDisk Free Space: ${__disk_free_space}\\nMemory Total Size: ${__memory_total}\\nSwap Total Size: ${__swap_total}\\n"
   # Display information gathered about the OS
   __eubnt_show_notice "System is ${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
-  # Show warning if detected system is outside of recommendations from UBNT
+  # Show warnings if detected system information is outside of recommendations from UBNT
   if [[ "${__os_version_name}" != "${os_version_recommended}" || "${os_bit}" != "${os_bit_recommended}" ]]; then
     __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${os_bit_recommended}\\n"
+  fi
+  if [[ "${__disk_free_space:0:2}" -lt 10 ]]; then
+    __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of disk free space\\n"
+  else
+    have_space_for_swap=true
+  fi
+  if [[ $(echo "${__memory_total}" | sed 's/[^0-9]*//g') -lt 2048 ]]; then
+    __eubnt_show_warning "UBNT recommends at least ${__recommended_memory_total} of memory\\n"
+  fi
+  if [[ "${__swap_total:0:1}" -eq 0 && $have_space_for_swap ]]; then
+    if __eubnt_question_prompt "Do you want to setup a 4GB swap file?" "return"; then
+      __eubnt_setup_swap_file "4G"
+    fi
   fi
   # Detect if Java is installed and what package and version
   if [[ $(command -v java) ]]; then
@@ -790,12 +837,12 @@ function __eubnt_check_system() {
     java_update_available=$(apt-cache policy "${java_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
     if [[ -n "${java_update_available}" && "${java_update_available}" != "${java_version_installed}" ]]; then
       __eubnt_show_notice "Java ${java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available\\n"
-      if ! __eubnt_question_prompt "Do you want to upgrade Java to ${java_update_available}?" "return"; then
+      if ! __eubnt_question_prompt "Do you want to update Java to ${java_update_available}?" "return"; then
         __hold_java="${java_package_installed}"
       fi
       echo
     elif [[ "${java_update_available}" != '' && "${java_update_available}" = "${java_version_installed}" ]]; then
-      __eubnt_show_success "Java ${java_version_installed} is current!\\n"
+      __eubnt_show_success "Java ${java_version_installed} is good!\\n"
     fi
   else
     __eubnt_show_notice "Java 8 will be installed\\n"
@@ -833,12 +880,12 @@ function __eubnt_check_system() {
     fi
     if [[ ! $__downgrade_mongo && -n "${mongo_update_available}" && "${mongo_update_available}" != "${mongo_version_installed}" ]]; then
       __eubnt_show_notice "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available\\n"
-      if ! __eubnt_question_prompt "Do you want to upgrade Mongo to ${mongo_update_available}?" "return"; then
+      if ! __eubnt_question_prompt "Do you want to update Mongo to ${mongo_update_available}?" "return"; then
         __hold_mongo="${mongo_package_installed}"
       fi
       echo
     elif [[ ! $__downgrade_mongo && -n "${mongo_update_available}" && "${mongo_update_available}" = "${mongo_version_installed}" ]]; then
-      __eubnt_show_success "Mongo ${mongo_version_installed} is current!\\n"
+      __eubnt_show_success "Mongo ${mongo_version_installed} is good!\\n"
     fi
   else
     __eubnt_show_notice "Mongo 3.4.x will be installed\\n"
@@ -856,13 +903,13 @@ function __eubnt_check_system() {
     fi
     if [[ -n "${unifi_update_available}" && "${unifi_update_available}" != "${__unifi_version_installed}" ]]; then
       __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${unifi_update_available} is available\\n"
-      if ! __eubnt_question_prompt "Do you want to upgrade UniFi to ${unifi_update_available}?" "return"; then
+      if ! __eubnt_question_prompt "Do you want to update UniFi to ${unifi_update_available}?" "return"; then
         __hold_unifi="unifi"
       fi
       echo
     elif [[ -n "${unifi_update_available}" && "${unifi_update_available}" = "${__unifi_version_installed}" ]]
     then
-      __eubnt_show_success "UniFi ${__unifi_version_installed} is current!\\n"
+      __eubnt_show_success "UniFi ${__unifi_version_installed} is good!\\n"
     fi
   else
     __eubnt_show_notice "UniFi does not appear to be installed yet\n"
