@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.3.7"
+__script_version="v0.4.0"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), (ssawyer)"
@@ -115,6 +115,8 @@ __hold_unifi=
 __install_mongo=
 __install_java=
 __install_webupd8_java=
+__accepted_license=
+__quiet_mode=
 __script_debug=
 
 # Setup script colors to use
@@ -164,13 +166,16 @@ function __eubnt_error_report() {
     exit ${error_code}
 }
 
-while getopts ":x" options; do
+while getopts ":aqx" options; do
   case "${options}" in
+    a)
+      __accepted_license=true;;
+    q)
+      __quiet_mode=true;;
     x)
       set -o xtrace
       __script_debug=true
-      trap '__eubnt_error_report "${FUNCNAME:-.}" ${LINENO}' ERR
-      break;;
+      trap '__eubnt_error_report "${FUNCNAME:-.}" ${LINENO}' ERR;;
     *)
       break;;
   esac
@@ -200,6 +205,9 @@ function __eubnt_question_prompt() {
   local default_answer="y"
   if [[ "${3:-}" = "n" ]]; then
     default_answer="n"
+  fi
+  if [[ "${__quiet_mode}" ]]; then
+    yes_no="${default_answer}"
   fi
   while [[ ! "${yes_no}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do
     read -r -p "${__colors_notice_text}${1:-$default_question} (y/n, default ${default_answer}) ${__colors_script_text}" yes_no
@@ -290,6 +298,15 @@ function __eubnt_show_warning() {
   fi
 }
 
+# Install package if needed and handle errors gracefully
+function __eubnt_install_package() {
+  if [[ "${1:-}" ]]; then
+    if ! dpkg --list | grep " {$1} " --quiet; then
+      apt-get install --yes "${1}"
+    fi
+  fi
+}
+
 ### Main script functions
 ##############################################################################
 
@@ -297,17 +314,19 @@ function __eubnt_show_warning() {
 function __eubnt_setup_sources() {
   # Make sure dirmngr is installed for Debian
   if [[ $__is_debian ]]; then
-    dpkg --list | grep " dirmngr " --quiet || apt-get install --yes dirmngr
+    __eubnt_install_package "dirmngr"
   fi
   # Install basic package for repository management if necessary
-  dpkg --list | grep " software-properties-common " --quiet || apt-get install --yes software-properties-common
+  __eubnt_install_package "software-properties-common"
   # Add source lists if needed
   if [[ $__is_ubuntu ]]; then
-    # Add archive and security sources for certain packages
+    # Make sure sources are added for certain packages
     apt-cache policy | grep "archive.ubuntu.com.*${__os_version_name}/main" || \
       echo "deb http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" | tee "${__apt_sources_dir}/${__os_version_name}-archive.list"
     apt-cache policy | grep "security.ubuntu.com.*${__os_version_name}-security/main" || \
       echo "deb http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" | tee "${__apt_sources_dir}/${__os_version_name}-security.list"
+    apt-cache policy | grep "mirrors.kernel.org.*${__os_version_name}/main" || \
+      echo "deb http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" | tee "${__apt_sources_dir}/${__os_version_name}-mirror.list"
     # Add repository for Certbot (Let's Encrypt)
     if [[ "${__os_version_name}" != "precise" ]]; then
       add-apt-repository ppa:certbot/certbot --yes
@@ -378,13 +397,12 @@ function __eubnt_install_updates_dependencies() {
     apt-mark hold "${__hold_unifi}"
   fi
   apt-get dist-upgrade --yes
-  dpkg --list | grep " unattended-upgrades " --quiet || apt-get install --yes unattended-upgrades
-  dpkg --list | grep " dirmngr " --quiet || apt-get install --yes dirmngr
-  dpkg --list | grep " curl " --quiet || apt-get install --yes curl
-  dpkg --list | grep " dnsutils " --quiet || apt-get install --yes dnsutils
+  __eubnt_install_package "unattended-upgrades"
+  __eubnt_install_package "curl"
+  __eubnt_install_package "dnsutils"
   # Better random number generator, improves performance
   # https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452
-  dpkg --list | grep " haveged " --quiet || apt-get install --yes haveged
+  __eubnt_install_package "haveged"
   if [[ $__hold_java ]]; then
     apt-mark unhold "${__hold_java}"
   fi
@@ -402,20 +420,20 @@ function __eubnt_install_java() {
     __eubnt_print_header "Installing Java...\\n"
     # Install WebUpd8 team's Java for certain OS versions
     if [[ $__install_webupd8_java ]]; then
-      apt-get install --yes oracle-java8-installer
-      apt-get install --yes oracle-java8-set-default
+      __eubnt_install_package "oracle-java8-installer"
+      __eubnt_install_package "oracle-java8-set-default"
     # Install regular Java for all others
     else
-      dpkg --list | grep " ca-certificates-java " --quiet || apt-get install --yes ca-certificates-java
-      apt-get install --yes openjdk-8-jre-headless
+      __eubnt_install_package "ca-certificates-java"
+      __eubnt_install_package "openjdk-8-jre-headless"
       local set_java_alternative="java-1.8.0-openjdk-amd64"
       if [[ $__is_32 ]]; then
         set_java_alternative="java-1.8.0-openjdk-i386"
       fi
       java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives --set "${set_java_alternative}"
     fi
-    dpkg --list | grep " jsvc " --quiet || apt-get install --yes jsvc
-    dpkg --list | grep " libcommons-daemon-java " --quiet || apt-get install --yes libcommons-daemon-java
+    __eubnt_install_package "jsvc"
+    __eubnt_install_package "libcommons-daemon-java"
   fi
 }
 
@@ -450,37 +468,45 @@ function __eubnt_install_unifi()
   if [[ $__unifi_version_installed ]]; then
     __eubnt_show_notice "Version ${__unifi_version_installed} is currently installed\\n"
   fi
-  for version in "${!unifi_supported_versions[@]}"; do
+  if [[ "${__quiet_mode:-}" ]]; then
     if [[ $__unifi_version_installed ]]; then
-      if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" && $__unifi_update_available ]]; then
-        unifi_versions_to_select+=("${__unifi_update_available}")
-      elif [[ "${unifi_supported_versions[$version]:2:1}" -gt "${__unifi_version_installed:2:1}" ]]; then
+      selected_unifi_version="${__unifi_version_installed:0:3}"
+    else
+      selected_unifi_version="${__unifi_version_stable}"
+    fi
+  else
+    for version in "${!unifi_supported_versions[@]}"; do
+      if [[ $__unifi_version_installed ]]; then
+        if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" && $__unifi_update_available ]]; then
+          unifi_versions_to_select+=("${__unifi_update_available}")
+        elif [[ "${unifi_supported_versions[$version]:2:1}" -gt "${__unifi_version_installed:2:1}" ]]; then
+          unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
+        fi
+      else
         unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
       fi
-    else
-      unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
-    fi
-  done
-  if [[ "${#unifi_versions_to_select[@]}" -eq 1 ]]; then
-    selected_unifi_version="${unifi_versions_to_select[0]%.*}"
-  elif [[ "${#unifi_versions_to_select[@]}" -gt 1 ]]; then
-    unifi_versions_to_select+=("None")
-    __eubnt_show_notice "Which controller do you want to install or upgrade to?\\n"
-    select version in "${unifi_versions_to_select[@]}"; do
-      case "${version}" in
-        "")
-          selected_unifi_version="${__unifi_version_stable}"
-          break;;
-        *)
-          if [[ "${version}" = "None" ]]; then
-            return 0
-          fi
-          selected_unifi_version="${version%.*}"
-          break;;
-      esac
     done
-  else
-    return 0
+    if [[ "${#unifi_versions_to_select[@]}" -eq 1 ]]; then
+      selected_unifi_version="${unifi_versions_to_select[0]%.*}"
+    elif [[ "${#unifi_versions_to_select[@]}" -gt 1 ]]; then
+      unifi_versions_to_select+=("None")
+      __eubnt_show_notice "Which controller do you want to install or upgrade to?\\n"
+      select version in "${unifi_versions_to_select[@]}"; do
+        case "${version}" in
+          "")
+            selected_unifi_version="${__unifi_version_stable}"
+            break;;
+          *)
+            if [[ "${version}" = "None" ]]; then
+              return 0
+            fi
+            selected_unifi_version="${version%.*}"
+            break;;
+        esac
+      done
+    else
+      return 0
+    fi
   fi
   if [[ $__unifi_version_installed ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
@@ -562,7 +588,7 @@ function __eubnt_install_certbot() {
         return 0
       fi
     else
-      if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return"; then
+      if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return" "n"; then
       return 0
       fi
     fi
@@ -649,7 +675,7 @@ function __eubnt_setup_ssh_server() {
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
     __eubnt_show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n"
     if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") ]]; then
-      if __eubnt_question_prompt "Change SSH port from the default 22?" "return"; then
+      if __eubnt_question_prompt "Change SSH port from the default 22?" "return" "n"; then
         local ssh_port=""
         while [[ ! $ssh_port =~ ^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]]; do
           read -r -p "Port number: " ssh_port
@@ -700,33 +726,34 @@ function __eubnt_setup_ufw() {
     fi
   fi
   # Use UFW for basic firewall protection
-  dpkg --list | grep " ufw " --quiet || apt-get install --yes ufw
+  __eubnt_install_package "ufw"
+  local unifi_system_properties unifi_http_port unifi_https_port unifi_portal_http_port unifi_portal_https_port unifi_throughput_port unifi_stun_port ssh_port
   local unifi_system_properties="${__unifi_data_dir}/system.properties"
   if [[ -f "${__sshd_config}" ]]; then
-    local ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+    ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
   fi
   if [[ -f "${unifi_system_properties}" ]]; then
-    local unifi_http_port=$(grep "^unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_http_port=$(grep "^unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_http_port ]]; then
       unifi_http_port="8080"
     fi
-    local unifi_https_port=$(grep "^unifi.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_https_port=$(grep "^unifi.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_https_port ]]; then
       unifi_https_port="8443"
     fi
-    local unifi_portal_http_port=$(grep "^portal.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_portal_http_port=$(grep "^portal.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_portal_http_port ]]; then
       unifi_portal_http_port="8880"
     fi
-    local unifi_portal_https_port=$(grep "^portal.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_portal_https_port=$(grep "^portal.https.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_portal_https_port ]]; then
       unifi_portal_https_port="8843"
     fi
-    local unifi_throughput_port=$(grep "^unifi.throughput.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_throughput_port=$(grep "^unifi.throughput.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_throughput_port ]]; then
       unifi_throughput_port="6789"
     fi
-    local unifi_stun_port=$(grep "^unifi.stun.port" "${unifi_system_properties}" | sed 's/.*=//g')
+    unifi_stun_port=$(grep "^unifi.stun.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_stun_port ]]; then
       unifi_stun_port="3478"
     fi
@@ -894,7 +921,7 @@ function __eubnt_check_system() {
       __eubnt_show_success "Java ${java_version_installed} is good!\\n"
     fi
   else
-    __eubnt_show_notice "Java 8 will be installed\\n"
+    __eubnt_show_notice "Java will be installed\\n"
     __setup_source_java=true
   fi
   # Detect if Mongo is installed and what version
@@ -971,13 +998,28 @@ function __eubnt_check_system() {
 __eubnt_script_colors
 __eubnt_print_header
 __eubnt_print_license
-__eubnt_question_prompt "Do you agree to the MIT License and want to proceed?" "exit" "n"
+if [[ "${__accepted_license:-}" ]]; then
+  sleep 3
+else
+  __eubnt_question_prompt "Do you agree to the MIT License and want to proceed?" "exit" "n"
+fi
 __eubnt_check_system
 __eubnt_question_prompt
 __eubnt_setup_sources
 __eubnt_install_updates_dependencies
 __eubnt_install_java
 __eubnt_install_mongo
+if [[ -f /var/run/reboot-required ]]; then
+  __eubnt_show_warning "A reboot is recommended. Run this script again after reboot to finish installing UniFi.\\n"
+  # TODO: Restart the script automatically after reboot
+  if [[ "${__quiet_mode:-}" ]]; then
+    __eubnt_show_warning "The system will automatically reboot in 10 seconds.\\n"
+    sleep 10
+  fi
+  if __eubnt_question_prompt "Do you want to reboot now?" "return"; then
+    shutdown --reboot now
+  fi
+fi
 __eubnt_install_unifi
 __eubnt_setup_ssh_server
 __eubnt_install_certbot
