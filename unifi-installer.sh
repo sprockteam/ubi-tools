@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.4.0"
+__script_version="v0.4.1"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), (ssawyer)"
@@ -35,13 +35,19 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
   exit
 fi
 
+# Install basic software if necessary
+dpkg --list | grep " software-properties-common " --quiet || apt-get install --yes "software-properties-common"
+
 # This script requires root or sudo privilege to run properly
 if [[ $(id --user) -ne 0 ]]; then
-  echo -e "\\nPlease run this script as root or use sudo, for example:\\n"
-  if [[ $(lsb_release --id --short) = "Debian" ]]; then
-    echo -e "su root\\nbash unifi-installer.sh\\n"
-  else
-    echo -e "sudo bash unifi-installer.sh\\n"
+  echo -e "\\nPlease run this script as root or use sudo\\n"
+  if [[ $(command -v lsb_release) ]]; then
+    echo -e "For example:"
+    if [[ $(lsb_release --id --short) = "Debian" ]]; then
+      echo -e "su root\\nbash unifi-installer.sh\\n"
+    else
+      echo -e "sudo bash unifi-installer.sh\\n"
+    fi
   fi
   exit
 fi
@@ -302,7 +308,10 @@ function __eubnt_show_warning() {
 function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
     if ! dpkg --list | grep " {$1} " --quiet; then
-      apt-get install --yes "${1}"
+      if ! apt-get install --yes "${1}"; then
+        apt-get --fix-broken install --yes || true
+        apt-get install --yes "${1}" || true
+      fi
     fi
   fi
 }
@@ -316,8 +325,6 @@ function __eubnt_setup_sources() {
   if [[ $__is_debian ]]; then
     __eubnt_install_package "dirmngr"
   fi
-  # Install basic package for repository management if necessary
-  __eubnt_install_package "software-properties-common"
   # Add source lists if needed
   if [[ $__is_ubuntu ]]; then
     # Make sure sources are added for certain packages
@@ -447,7 +454,7 @@ function __eubnt_install_mongo()
       if [[ $__is_unifi_installed ]]; then
         service unifi stop
       fi
-      apt-get purge "mongodb-server" --yes
+      apt-get purge "mongodb*" --yes
       apt-get autoremove --yes
     fi
     dpkg --list | grep " mongo.*-server " --quiet || apt-get install --yes mongodb-org
@@ -828,6 +835,7 @@ function __eubnt_check_system() {
   local ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
   local debian_supported_versions=("wheezy" "jessie" "stretch")
   local have_space_for_swap=
+  local current_time=$(date)
   # Only 32-bit and 64-bit are supported (i.e. not ARM)
   if [[ "${__architecture}" = "i686" ]]; then
     __is_32=true
@@ -876,7 +884,7 @@ function __eubnt_check_system() {
     __eubnt_abort "Unable to detect system information"
   fi
   # Display disk and memory space information
-  __eubnt_show_notice "System Vitals\\nDisk free space: ${__disk_free_space}\\nMemory total size: ${__memory_total}\\nSwap total size: ${__swap_total}\\n"
+  __eubnt_show_notice "Disk free space: ${__disk_free_space}\\nMemory total size: ${__memory_total}\\nSwap total size: ${__swap_total}\\n"
   # Display information gathered about the OS
   __eubnt_show_notice "System is ${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
   # Show warnings if detected system information is outside of recommendations from UBNT
@@ -897,6 +905,14 @@ function __eubnt_check_system() {
     if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb} swap file?" "return"; then
       __eubnt_setup_swap_file
     fi
+  fi
+  __eubnt_show_success "Current time is ${current_time}\\n"
+  if ! __eubnt_question_prompt "Does the current time and timezone look correct?" "return"; then
+    __eubnt_install_package "ntp"
+    dpkg-reconfigure tzdata
+    current_time=$(date)
+    __eubnt_show_success "\\nUpdated time is ${current_time}\\n"
+    sleep 3
   fi
   # Detect if Java is installed and what package and version
   if [[ $(command -v java) ]]; then
@@ -1010,6 +1026,7 @@ __eubnt_install_updates_dependencies
 __eubnt_install_java
 __eubnt_install_mongo
 if [[ -f /var/run/reboot-required ]]; then
+  echo
   __eubnt_show_warning "A reboot is recommended. Run this script again after reboot to finish installing UniFi.\\n"
   # TODO: Restart the script automatically after reboot
   if [[ "${__quiet_mode:-}" ]]; then
@@ -1017,7 +1034,7 @@ if [[ -f /var/run/reboot-required ]]; then
     sleep 10
   fi
   if __eubnt_question_prompt "Do you want to reboot now?" "return"; then
-    shutdown --reboot now
+    shutdown -r now
   fi
 fi
 __eubnt_install_unifi
