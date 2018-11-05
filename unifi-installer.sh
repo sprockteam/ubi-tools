@@ -8,10 +8,10 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.4.1"
+__script_version="v0.5.0"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
-Frank Gabriel (Frankedinven), (ssawyer)"
+Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer)"
 
 ### Copyrights and Mentions
 ##############################################################################
@@ -35,20 +35,13 @@ if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
   exit
 fi
 
-# Install basic software if necessary
-dpkg --list | grep " software-properties-common " --quiet || apt-get install --yes "software-properties-common"
-
 # This script requires root or sudo privilege to run properly
 if [[ $(id --user) -ne 0 ]]; then
   echo -e "\\nPlease run this script as root or use sudo\\n"
-  if [[ $(command -v lsb_release) ]]; then
-    echo -e "For example:"
-    if [[ $(lsb_release --id --short) = "Debian" ]]; then
-      echo -e "su root\\nbash unifi-installer.sh\\n"
-    else
-      echo -e "sudo bash unifi-installer.sh\\n"
-    fi
-  fi
+  echo -e "For example in Debian:"
+  echo -e "su root\\nbash unifi-installer.sh\\n"
+  echo -e "\\nFor example in Ubuntu (or Debian with sudo installed):"
+  echo -e "sudo bash unifi-installer.sh\\n"
   exit
 fi
 
@@ -62,46 +55,58 @@ set -o errtrace
 # Do not allow use of undefined vars, use ${var:-} if a variable might be undefined
 set -o nounset
 
-# Set magic variables for current file and directory
+# Set magic variables for script and environment
+__script_time=$(date +%s)
+__script_name=$(basename "${0}")
 __dir=$(cd "$(dirname "${0}")" && pwd)
-__file="${__dir}/$(basename "${0}")"
+__file="${__dir}/${__script_name}"
 __base=$(basename "${__file}" .sh)
+__eubnt_dir=$(mkdir --parents /usr/lib/easy-ubnt && echo "/usr/lib/easy-ubnt")
+__script_log_dir=$(mkdir --parents /var/log/easy-ubnt && echo "/var/log/easy-ubnt")
+__script_log=$(touch "${__script_log_dir}/${__script_name}-${__script_time}.log" && echo "${__script_log_dir}/${__script_name}-${__script_time}.log")
 
 # Set script time, get system information
-__script_time=$(date +%s)
 __architecture=$(uname --machine)
 __os_all_info=$(uname --all)
+__os_kernel=$(uname --release)
+__os_kernel_version=$(uname --release | sed 's/[-][a-z].*//g')
 __os_version=$(lsb_release --release --short)
 __os_version_name=$(lsb_release --codename --short)
-__os_version_name_ubuntu_equivalent=""
 __os_name=$(lsb_release --id --short)
 __machine_ip_address=$(hostname -I | awk '{print $1}')
-__disk_total_space="$(df --human-readable . | grep "/" | awk '{print $2}')B"
-__disk_free_space="$(df --human-readable . | grep "/" | awk '{print $4}')B"
-__memory_total="$(grep "MemTotal" /proc/meminfo | awk '{printf "%.0fM", $2/1024}')B"
-__swap_total="$(grep "SwapTotal" /proc/meminfo | awk '{printf "%.0fM", $2/1024}')B"
+__disk_total_space="$(df . | awk '/\//{printf "%.0fGB", $2/1024/1024}')"
+__disk_free_space="$(df . | awk '/\//{printf "%.0fGB", $4/1024/1024}')"
+__memory_total="$(grep "MemTotal" /proc/meminfo | awk '{printf "%.0fMB", $2/1024}')"
+__swap_total="$(grep "SwapTotal" /proc/meminfo | awk '{printf "%.0fMB", $2/1024}')"
+__nameservers=$(awk '/nameserver/{print $2}' /etc/resolv.conf | xargs)
 
 # Initialize miscellaneous variables
+__os_version_name_ubuntu_equivalent=
 __unifi_version_installed=
 __unifi_update_available=
 __unifi_domain_name=
 __unifi_https_port=
 
-# Set various base folders
+# Set various base folders and files
 # TODO: Make these dynamic
-__apt_sources_dir="/etc/apt/sources.list.d"
+__apt_sources_dir=$(find /etc -type d -name "sources.list.d")
 __unifi_base_dir="/usr/lib/unifi"
 __unifi_data_dir="${__unifi_base_dir}/data"
 __letsencrypt_dir="/etc/letsencrypt"
 __sshd_config="/etc/ssh/sshd_config"
 
-# Recommendations and minimum requirements
-__unifi_version_stable="5.8"
+# Recommendations and minimum requirements and misc variables
 __recommended_disk_free_space="10GB"
 __recommended_memory_total="2048MB"
 __recommended_memory_total_gb="2GB"
 __recommended_swap_total="4096MB"
 __recommended_swap_total_gb="4GB"
+__os_bit_recommended="64-bit"
+__java_version_recommended="8"
+__mongo_version_recommended="3.4.x"
+__unifi_version_stable="5.8"
+__recommended_nameserver="9.9.9.9"
+__ubnt_dns="dl.ubnt.com"
 
 # Initialize "boolean" variables as "false"
 __is_32=
@@ -109,8 +114,6 @@ __is_64=
 __is_ubuntu=
 __is_debian=
 __is_unifi_installed=
-__cleanup_restart_ssh_server=
-__cleanup_run_autoremove=
 __setup_source_java=
 __setup_source_mongo=
 __purge_mongo=
@@ -121,90 +124,99 @@ __hold_unifi=
 __install_mongo=
 __install_java=
 __install_webupd8_java=
-__accepted_license=
-__quiet_mode=
+__accept_license=
+__quick_mode=
+__verbose_output=
 __script_debug=
+__restart_ssh_server=
+__run_autoremove=
+__reboot_system=
 
-# Setup script colors to use
-__colors_script_background=$(tput sgr0)
-__colors_warning_text=$(tput setaf 1)
-__colors_notice_text=$(tput sgr0)
-__colors_success_text=$(tput setaf 5)
-__colors_script_text=$(tput sgr0)
-__colors_default=$(tput sgr0)
+# Setup script colors and special text to use
+__colors_bold_text="$(tput bold)"
+__colors_warning_text="${__colors_bold_text}$(tput setaf 1)"
+__colors_error_text="${__colors_bold_text}$(tput setaf 1)"
+__colors_notice_text="${__colors_bold_text}$(tput setaf 6)"
+__colors_success_text="${__colors_bold_text}$(tput setaf 2)"
+__colors_default="$(tput sgr0)"
+__spinner="-\\|/"
 
-### Error/cleanup handling and trace/debugging option
+### Error/cleanup handling
 ##############################################################################
 
 # Run miscellaneous tasks before exiting
+# TODO: Display more useful information
+###
+# Restart services if needed
+# Clean up source lists if needed
+# Remove un-needed packages if any
+# Clear display and show UniFi service status
 function __eubnt_cleanup_before_exit() {
-  echo "Cleaning up script, please wait..."
-  if [[ $__cleanup_restart_ssh_server ]]; then
-    service ssh restart
+  echo -e "${__colors_default}\\nCleaning up script, please wait...\\n"
+  if [[ $__restart_ssh_server ]]; then
+    __eubnt_run_command "service ssh restart"
   fi
   if [[ $__unifi_version_installed ]]; then
-    __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+    __unifi_update_available=$(apt-cache policy "unifi" | grep "Candidate" | awk '{print $2}' | sed 's/-.*//g')
     if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
-      echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" >/dev/null | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
-      apt-get update &>/dev/null
+      __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list"
+      __eubnt_run_command "apt-get update"
     fi
   fi
-  if [[ $__cleanup_run_autoremove ]]; then
-    apt-get clean --yes &>/dev/null
-    apt-get autoremove --yes &>/dev/null
+  if [[ $__run_autoremove ]]; then
+    __eubnt_run_command "apt-get clean --yes"
+    __eubnt_run_command "apt-get autoremove --yes"
   fi
-  echo "${__colors_default}"
-  if [[ -f "/lib/systemd/system/unifi.service" && ! $__script_debug ]]; then
+  local keep_log
+  if [[ -s "${__script_log:-}" ]]; then
+    if __eubnt_question_prompt "\\nDo you want to keep the log file?" "return"; then
+      keep_log=true
+    fi
+  fi
+  if [[ -f "/lib/systemd/system/unifi.service" && ! $__script_debug && ! "${__reboot_system:-}" ]]; then
     clear
-    echo -e "Dumping current UniFi Controller status...\\n"
-    service unifi status | cat
+    __eubnt_echo_and_log "Dumping current UniFi Controller status...\\n"
+    __eubnt_run_command "service unifi status | cat" "foreground"
     echo
+  fi
+  if [[ -z "${keep_log:-}" ]]; then
+    rm "${__script_log}"
+  fi
+  for var_name in ${!__*}; do
+    if [[ "${var_name}" != "__reboot_system" ]]; then
+      unset -v "${var_name}"
+    fi
+  done
+  if [[ "${__reboot_system:-}" ]]; then
+    shutdown -r now
   fi
 }
 trap __eubnt_cleanup_before_exit EXIT
-
-# Display a detailed message if an error is encountered
-function __eubnt_error_report() {
-    local error_code
-    error_code=${?}
-    echo "Error in ${__file} in function ${1} on line ${2}"
-    sleep 5
-    exit ${error_code}
-}
-
-while getopts ":aqx" options; do
-  case "${options}" in
-    a)
-      __accepted_license=true;;
-    q)
-      __quiet_mode=true;;
-    x)
-      set -o xtrace
-      __script_debug=true
-      trap '__eubnt_error_report "${FUNCNAME:-.}" ${LINENO}' ERR;;
-    *)
-      break;;
-  esac
-done
+trap '__script_debug=true' ERR
 
 ### Utility functions
 ##############################################################################
 
 # Setup initial script colors
 function __eubnt_script_colors() {
-  echo "${__colors_script_background}${__colors_script_text}"
+  echo "${__colors_default}"
 }
 
 # Show a basic error message and exit
-function __eubnt_abort() {
-  echo -e "${__colors_warning_text}##############################################################################\\n"
-  echo -e "ERROR! ${1:-}\\n${__colors_script_text}"
-  # TODO: Use __eubnt_error_report here
-  __script_debug=true
-  exit 1
+# $1: The error text to display
+function __eubnt_show_error() {
+  echo -e "${__colors_error_text}##############################################################################\\n"
+  __eubnt_echo_and_log "ERROR! ${1:-}${__colors_default}\\n"
+  return 1
 }
 
 # Display a yes or know question and proceed accordingly
+# $1: The question to use instead of the default question
+# $2: Can be set to "return" if an error should be returned instead of exiting
+# $3: Can be set to "n" if the default answer should be no instead of yes
+###
+# If no answer is given, the default answer is used
+# If the script it running in "quiet mode" then the default answer is used without prompting
 function __eubnt_question_prompt() {
   local yes_no=""
   local default_question="Do you want to proceed?"
@@ -212,146 +224,313 @@ function __eubnt_question_prompt() {
   if [[ "${3:-}" = "n" ]]; then
     default_answer="n"
   fi
-  if [[ "${__quiet_mode}" ]]; then
+  if [[ "${__quick_mode}" ]]; then
     yes_no="${default_answer}"
   fi
   while [[ ! "${yes_no}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do
-    read -r -p "${__colors_notice_text}${1:-$default_question} (y/n, default ${default_answer}) ${__colors_script_text}" yes_no
+    echo -e -n "${__colors_notice_text}${1:-$default_question} (y/n, default ${default_answer})${__colors_default} "
+    read -r yes_no
+    echo -e -n "\\r"
     if [[ "${yes_no}" = "" ]]; then
       yes_no="${default_answer}"
     fi
   done
+  __eubnt_add_to_log "${1:-$default_question} ${yes_no}"
   case "${yes_no}" in
     [Nn]*)
       echo
-      # If the "return" option is specified, then return an error
       if [[ "${2:-}" = "return" ]]; then
         return 1
-      # Else, exit the script
       else
         exit
       fi;;
     [Yy]*)
-      # The default is to return true (yes) and continue
       echo
       return 0;;
   esac
 }
 
 # Display a question and return full user input
+# $1: The question to ask, there is no default question so one must be set
+# $2: The variable to assign the answer to, this must also be set
+# $3: Can be set to "optional" to allow for an empty response to bypass the question
+###
+# No checks on the input are done within this function, must be done after the answer has been returned
 function __eubnt_get_user_input() {
   local user_input=""
   if [[ -n "${1:-}" && -n "${2:-}" ]]; then
     while [[ -z "${user_input}" ]]; do
-      read -r -p "${__colors_notice_text}${1}${__colors_script_text}" user_input
-      # Allow an empty response if "optional" is specified
+      echo -e -n "${__colors_notice_text}${1}${__colors_default} "
+      read -r user_input
+      echo -e -n "\\r"
       if [[ "${3:-}" = "optional" ]]; then
         break
       fi
     done
+    __eubnt_add_to_log "${1} ${user_input}"
     eval "${2}=\"${user_input}\""
   fi
 }
 
 # Print a header that informs the user what task is running
-function __eubnt_print_header() {
+# $1: Can be set in order to display additional details about the current task
+###
+# If the script is not in debug mode, then the screen will be cleared first
+# The script header will then be displayed
+# If $1 is set then it will be displayed under the header
+function __eubnt_show_header() {
   if [[ ! $__script_debug ]]; then
     clear
   fi
-  echo "${__colors_notice_text}##############################################################################"
-  echo "# Easy UBNT: UniFi Installer ${__script_version}                                          #"
-  echo -e "##############################################################################${__colors_script_text}\\n"
-  if [[ "${1:-}" ]]; then
+  echo -e "${__colors_notice_text}### Easy UBNT: UniFi Installer ${__script_version}"
+  echo -e "##############################################################################${__colors_default}\\n"
+  if [[ -n "${1:-}" ]]; then
     __eubnt_show_notice "${1}"
   fi
 }
 
 # Show the license and disclaimer for this script
-function __eubnt_print_license() {
-  __eubnt_show_notice "MIT License\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n"
-  __eubnt_show_notice "${__script_contributors:-}\\n"
+function __eubnt_show_license() {
+  __eubnt_show_text "MIT License\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n"
+  __eubnt_show_text "${__script_contributors:-}\\n"
   __eubnt_show_warning "This script will guide you through installing and upgrading
 the UniFi Controller from UBNT, and securing this system using best
 practices. It is intended to work on systems that will be dedicated
 to running the UniFi Controller.\\n
 THIS SCRIPT IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND!\\n"
-  __eubnt_show_notice "Read the full MIT License for this script here:
+  __eubnt_show_text "Read the full MIT License for this script here:
 https://raw.githubusercontent.com/sprockteam/easy-ubnt/master/LICENSE\\n"
 }
 
+# Print text to the screen
+# $1: The text to display
+function __eubnt_show_text() {
+  if [[ -n "${1:-}" ]]; then
+    __eubnt_echo_and_log "${__colors_default}${1}${__colors_default}\\n"
+  fi
+}
+
 # Print a notice to the screen
+# $1: The text to display
 function __eubnt_show_notice() {
-  if [[ "${1:-}" ]]; then
-    echo -e "${__colors_notice_text}${1}${__colors_script_text}"
+  if [[ -n "${1:-}" ]]; then
+    __eubnt_echo_and_log "${__colors_notice_text}${1}${__colors_default}\\n"
   fi
 }
 
 # Print a success message to the screen
+# $1: The text to display
 function __eubnt_show_success() {
-  if [[ "${1:-}" ]]; then
-    echo -e "${__colors_success_text}${1}${__colors_script_text}"
+  if [[ -n "${1:-}" ]]; then
+    __eubnt_echo_and_log "${__colors_success_text}${1}${__colors_default}\\n"
   fi
 }
 
 # Print a warning to the screen
+# $1: The text to display
+# $2: Can be set to "none" to not show the "WARNING:" prefix
 function __eubnt_show_warning() {
-  local warning_prefix="WARNING: "
-  if [[ "${1:-}" ]]; then
+  local warning_prefix
+  if [[ -n "${1:-}" ]]; then
     if [[ "${2:-}" = "none" ]]; then
       warning_prefix=""
+    else
+      warning_prefix="WARNING: "
     fi
-    echo -e "${__colors_warning_text}${warning_prefix}${1}${__colors_script_text}"
+    __eubnt_echo_and_log "${__colors_warning_text}${warning_prefix}${1}${__colors_default}\\n"
+  fi
+}
+
+# Add to the log file
+# $1: The text to log
+function __eubnt_add_to_log() {
+  if [[ -n "${1:-}" ]]; then
+    echo -e "${1}" >>"${__script_log}"
+  fi
+}
+
+# Echo to the screen and log file
+# $1: The text to echo
+# $2: Optional file to pipe echo output to
+# $3: Can be set to append if appending to $2 is needed
+function __eubnt_echo_and_log() {
+  if [[ -n "${1:-}" && -z "${2:-}" ]]; then
+    echo -e -n "${1}" | tee -a "${__script_log}"
+  elif [[ -n "${1:-}" && -n "${2:-}" ]]; then
+    if [[ "${3:-}" = "append" ]]; then
+      echo "${1}" | tee -a "${2}" | tee -a "${__script_log}" 
+    else
+      echo "${1}" | tee "${2}" | tee -a "${__script_log}" 
+    fi
+  fi
+}
+
+
+# A wrapper to run commands, display a nice message and handle errors gracefully
+# $1: The full command to run as a string
+# $2: If set to "foreground" then the command will run in the foreground, if set to "quiet" the output will be directed to the log file
+###
+# Make sure the command seems valid
+# Run the command in the background and show a spinner (https://unix.stackexchange.com/a/225183)
+# Run the command in the foreground when in verbose mode
+function __eubnt_run_command() {
+  if [[ -z "${1:-}" ]]; then
+    return 0
+  fi
+  local background_pid
+  declare -a full_command=()
+  IFS=' ' read -r -a full_command <<< "${1}"
+  if [[ ! $(command -v "${full_command[0]}") ]]; then
+    __eubnt_show_error "Unknown command: ${full_command[0]} at $(caller)"
+  fi
+  if [[ "${full_command[1]}" != "echo" ]]; then
+    __eubnt_add_to_log "${1}"
+  fi
+  if [[ ( "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[1]}" = "echo" ]]; then
+    "${full_command[@]}" | tee -a "${__script_log}"
+  elif [[ "${2:-}" = "quiet" ]]; then
+    "${full_command[@]}" &>>"${__script_log}"
+  else
+    "${full_command[@]}" &>>"${__script_log}" &
+    background_pid=$!
+  fi
+  if [[ -n "${background_pid:-}" ]]; then
+    local i=0
+    while [[ -d /proc/$background_pid ]]; do
+      echo -e -n "\\r${1} [${__spinner:i++%${#__spinner}:1}]"
+      sleep 0.5
+    done
+    __eubnt_echo_and_log "\\r${1} [\\xE2\\x9C\\x93]\\n"
+  fi
+  return 0
+}
+
+# Add a source list to the system
+# $1: The source information to use
+# $2: The name of the source list file to make on the local machine
+# $3: A search term to use when checking if the source list should be added
+function __eubnt_add_source() {
+  if [[ "${1:-}" && "${2:-}" && "${3:-}" ]]; then
+    if [[ ! $(find /etc/apt -name "*.list" -exec grep "${3}" {} \;) ]]; then
+      __eubnt_echo_and_log "deb ${1}" "${__apt_sources_dir}/${2}"
+    else
+      __eubnt_add_to_log "Skipping add source for ${1}"
+    fi
+  fi
+}
+
+# Add a package signing key to the system
+# $1: The 32-bit hex fingerprint of the key to add
+function __eubnt_add_key() {
+  if [[ "${1:-}" ]]; then
+    if ! apt-key list 2>/dev/null | grep --quiet "${1}"; then
+      __eubnt_run_command "apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys ${1}"
+    fi
+  fi
+}
+
+# Check if is package is installed
+# $1: The name of the package to check
+function __eubnt_is_package_installed() {
+  if [[ -z "${1:-}" ]]; then
+    return 1
+  fi
+  if dpkg --list 2>/dev/null | grep --quiet "^i.*${1}.*"; then
+    return 0
+  else
+    return 1
   fi
 }
 
 # Install package if needed and handle errors gracefully
+# $1: The name of the package to install
+# $2: An optional target release to use
 function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
-    if ! dpkg --list | grep " {$1} " --quiet; then
-      if ! apt-get install --yes "${1}"; then
-        apt-get --fix-broken install --yes || true
-        apt-get install --yes "${1}" || true
+    local target_release
+    if ! apt-get install --simulate "${1}" &>/dev/null; then
+      __eubnt_run_command "apt-get install --fix-broken --yes"
+    fi
+    if apt-get install --simulate "${1}" &>/dev/null; then
+      if ! __eubnt_is_package_installed "${1}"; then
+        local i=0
+        while lsof /var/lib/dpkg/lock &>/dev/null; do
+          echo -e -n "\\rWaiting for package manager to become available... [${__spinner:i++%${#__spinner}:1}]"
+          sleep 0.5
+        done
+        __eubnt_echo_and_log "\\rWaiting for package manager to become available... [\\xE2\\x9C\\x93]\\n"
+        if [[ -n "${2:-}" ]]; then
+          target_release="--target-release ${2} "
+        fi
+        __eubnt_run_command "apt-get install --yes ${target_release:-}${1}"
+      else
+        __eubnt_echo_and_log "Package already installed: ${1}\\n"
       fi
+    else
+      __eubnt_show_error "Unable to install package: ${1} at $(caller)"
     fi
   fi
 }
 
+### Parse commandline options
+##############################################################################
+
+# Basic way to get command line options
+# TODO: Incorporate B3BP methods here
+while getopts ":aqvx" options; do
+  case "${options}" in
+    a)
+      __eubnt_add_to_log "Accepted license via command line option"
+      __accept_license=true;;
+    q)
+      __eubnt_add_to_log "Running script in quick mode"
+      __quick_mode=true;;
+    v)
+      __eubnt_add_to_log "Running script with verbose screen output"
+      __verbose_output=true;;
+    x)
+      __eubnt_add_to_log "Running script with tracing turned on for debugging"
+      set -o xtrace
+      __script_debug=true;;
+    *)
+      break;;
+  esac
+done
+
 ### Main script functions
 ##############################################################################
 
-### Setup source lists for later use when installing and upgrading
+# Setup source lists for later use in the script
+###
+# General: Clear list caches
+# Debian: Make sure the dirmngr package is installed so keys can be validated
+# Ubuntu: Setup alternative source lists to get certain packages
+# Certbot: Debian distribution sources include it, sources are available for Ubuntu except Precise
+# Java: Use WebUpd8 repository for Precise and Trust era OSes (https://gist.github.com/pyk/19a619b0763d6de06786 | https://askubuntu.com/a/190674)
+# Java: Use the distribution sources to get Java for all others
+# Mongo: Official repository only distributes 64-bit packages, not compatible with Wheezy
+# Mongo: UniFi will install it from distribution sources if needed
+# UniFi: Add UBNT package signing key here, add source list later depending on the chosen version
 function __eubnt_setup_sources() {
-  # Make sure dirmngr is installed for Debian
+  __eubnt_show_header "Setting up repository source lists...\\n"
   if [[ $__is_debian ]]; then
     __eubnt_install_package "dirmngr"
   fi
-  # Add source lists if needed
   if [[ $__is_ubuntu ]]; then
-    # Make sure sources are added for certain packages
-    apt-cache policy | grep "archive.ubuntu.com.*${__os_version_name}/main" || \
-      echo "deb http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" | tee "${__apt_sources_dir}/${__os_version_name}-archive.list"
-    apt-cache policy | grep "security.ubuntu.com.*${__os_version_name}-security/main" || \
-      echo "deb http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" | tee "${__apt_sources_dir}/${__os_version_name}-security.list"
-    apt-cache policy | grep "mirrors.kernel.org.*${__os_version_name}/main" || \
-      echo "deb http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" | tee "${__apt_sources_dir}/${__os_version_name}-mirror.list"
-    # Add repository for Certbot (Let's Encrypt)
+    __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main"
+    __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main"
+    __eubnt_add_source "http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main"
     if [[ "${__os_version_name}" != "precise" ]]; then
-      add-apt-repository ppa:certbot/certbot --yes
+      __eubnt_add_source "http://ppa.launchpad.net/certbot/certbot/ubuntu ${__os_version_name} main" "ppa\\.laundpad\\.net.*${__os_version_name}.*main"
+      __eubnt_add_key "75BCA694"
     fi
   elif [[ $__is_debian ]]; then 
-    apt-cache policy | grep "debian.*${__os_version_name}-backports/main" || \
-      echo "deb http://ftp.debian.org/debian ${__os_version_name}-backports main" | tee "${__apt_sources_dir}/${__os_version_name}-backports.list"
+    __eubnt_add_source "http://ftp.debian.org/debian ${__os_version_name}-backports main" "${__os_version_name}-backports.list" "ftp\\.debian\\.org.*${__os_version_name}-backports.*main"
   fi
   if [[ $__setup_source_java ]]; then
-    # Use WebUpd8 PPA to get Java 8 on older OS versions
-    # https://gist.github.com/pyk/19a619b0763d6de06786
-    if [[ "${__os_version_name_ubuntu_equivalent}" = "precise" || "${__os_version_name_ubuntu_equivalent}" = "trusty" ]]; then
-      apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys EEA14886
-      apt-cache policy | grep "ppa.launchpad.net/webupd8team/java/ubuntu.*${__os_version_name_ubuntu_equivalent}/main" || \
-        echo "deb http://ppa.launchpad.net/webupd8team/java/ubuntu ${__os_version_name_ubuntu_equivalent} main" | tee "${__apt_sources_dir}/webupd8team-java.list"; \
-        echo "deb-src http://ppa.launchpad.net/webupd8team/java/ubuntu ${__os_version_name_ubuntu_equivalent} main" | tee -a "${__apt_sources_dir}/webupd8team-java.list"
-      # Silently accept the license for Java
-      # https://askubuntu.com/questions/190582/installing-java-automatically-with-silent-option
+    if [[ "${__os_version_name_ubuntu_equivalent}" = "precise" || "${__os_version_name}" = "trusty" ]]; then
+      __eubnt_add_key "EEA14886"
+      __eubnt_add_source "http://ppa.launchpad.net/webupd8team/java/ubuntu ${__os_version_name_ubuntu_equivalent} main" "webupd8team-java.list" "ppa\\.launchpad\\.net.*${__os_version_name_ubuntu_equivalent}.*main"
       echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
       __install_webupd8_java=true
     else
@@ -359,12 +538,9 @@ function __eubnt_setup_sources() {
     fi
   fi
   if [[ $__setup_source_mongo ]]; then
-    # Setup Mongo package repository
-    # Mongo only distributes 64-bit packages
-    local mongo_repo_distro=""
-    local mongo_repo_url=""
+    local mongo_repo_distro=
+    local mongo_repo_url=
     if [[ $__is_64 && $__is_ubuntu ]]; then
-      # For Precise and Bionic, use closest available repo
       if [[ "${__os_version_name}" = "precise" ]]; then
         mongo_repo_distro="trusty"
       elif [[ "${__os_version_name}" = "bionic" ]]; then
@@ -372,101 +548,131 @@ function __eubnt_setup_sources() {
       else
         mongo_repo_distro="${__os_version_name}"
       fi
-      mongo_repo_url="deb [ arch=amd64 ] http://repo.mongodb.org/apt/ubuntu ${mongo_repo_distro}/mongodb-org/3.4 multiverse"
+      mongo_repo_url="http://repo.mongodb.org/apt/ubuntu ${mongo_repo_distro}/mongodb-org/3.4 multiverse"
     elif [[ $__is_64 && $__is_debian ]]; then
-      # Mongo 3.4 isn't compatible with Wheezy
       if [[ "${__os_version_name}" != "wheezy" ]]; then
-        mongo_repo_url="deb http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main"
+        mongo_repo_url="http://repo.mongodb.org/apt/debian jessie/mongodb-org/3.4 main"
       fi
     fi
-    if [[ "${mongo_repo_url:-}" ]]; then
-      apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 0C49F3730359A14518585931BC711F9BA15703C6
-      apt-cache policy | grep "repo.mongodb.org/apt/.*mongodb-org/3.4" || \
-        echo "${mongo_repo_url}" | tee "${__apt_sources_dir}/mongodb-org-3.4.list"
+    if [[ $mongo_repo_url ]]; then
+      __eubnt_add_source "${mongo_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"
+      __eubnt_add_key "A15703C6"
       __install_mongo=true
     fi
   fi
-  # Add UBNT package signing key
-  apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 06E85760C0A52C50
-  apt-get update
+  __eubnt_add_key "C0A52C50"
+  __eubnt_run_command "apt-get update"
 }
 
-# Install basic system utilities needed for successful installation
-function __eubnt_install_updates_dependencies() {
-  __eubnt_print_header "Checking updates, installing dependencies...\\n"
-  if [[ $__hold_java ]]; then
-    apt-mark hold "${__hold_java}"
+# Collection of different fixes to do pre/post apt install/upgrade
+###
+# First issue "fix-broken" and "autoremove" commands
+# Fix for kernel files filling /boot based on solution found here -  https://askubuntu.com/a/90219
+function __eubnt_install_fixes {
+  __eubnt_show_header "Running common pre-install fixes...\\n"
+  __eubnt_run_command "apt-get install --fix-broken --yes"
+  __eubnt_run_command "apt-get autoremove --yes"
+  __eubnt_run_command "rm -rf /var/lib/apt/lists/*"
+  if [[ -d /boot ]]; then
+    if [[ $(df /boot | awk '/\/boot/{gsub("%", ""); print $5}') -gt 50 ]]; then
+      declare -a files_in_boot=()
+      declare -a kernel_packages=()
+      __eubnt_show_text "Removing old kernel files from /boot"
+      while IFS=$'\n' read -r found_file; do files_in_boot+=("$found_file"); done < <(find /boot -maxdepth 1 -type f)
+      for boot_file in "${!files_in_boot[@]}"; do
+        kernel_version=$(echo "${files_in_boot[$boot_file]}" | grep --extended-regexp --only-matching "[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\-{1}[0-9]+)?")
+        if [[ "${kernel_version}" = *"-"* && "${__os_kernel_version}" = *"-"* && "${kernel_version//-*/}" = "${__os_kernel_version//-*/}" && "${kernel_version//*-/}" -lt "${__os_kernel_version//*-/}" ]]; then
+          # shellcheck disable=SC2227
+          find /boot -maxdepth 1 -type f -name "*${kernel_version}*" -exec rm {} \; -exec echo Removing {} >>"${__script_log}" \;
+        fi
+      done
+      __eubnt_run_command "apt-get install --fix-broken --yes"
+      __eubnt_run_command "apt-get autoremove --yes"
+      while IFS=$'\n' read -r found_package; do kernel_packages+=("$found_package"); done < <(dpkg --list linux-{image,headers}-"[0-9]*" | awk '/linux/{print $2}')
+      for kernel in "${!kernel_packages[@]}"; do
+        kernel_version=$(echo "${kernel_packages[$kernel]}" | sed --regexp-extended 's/linux-(image|headers)-//g' | sed 's/[-][a-z].*//g')
+        if [[ "${kernel_version}" = *"-"* && "${__os_kernel_version}" = *"-"* && "${kernel_version//-*/}" = "${__os_kernel_version//-*/}" && "${kernel_version//*-/}" -lt "${__os_kernel_version//*-/}" ]]; then
+          __eubnt_run_command "apt-get purge --yes ${kernel_packages[$kernel]}"
+        fi
+      done
+    fi
   fi
-  if [[ $__hold_mongo ]]; then
-    apt-mark hold "${__hold_mongo}"
-  fi
-  if [[ $__hold_unifi ]]; then
-    apt-mark hold "${__hold_unifi}"
-  fi
-  apt-get dist-upgrade --yes
+}
+
+# Install basic system utilities needed for successful script run
+function __eubnt_install_updates_utils() {
+  __eubnt_show_header "Installing utilities and updates...\\n"
+  __eubnt_install_package "software-properties-common"
   __eubnt_install_package "unattended-upgrades"
   __eubnt_install_package "curl"
+  __eubnt_install_package "binutils"
   __eubnt_install_package "dnsutils"
-  # Better random number generator, improves performance
-  # https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452
-  __eubnt_install_package "haveged"
   if [[ $__hold_java ]]; then
-    apt-mark unhold "${__hold_java}"
+    __eubnt_run_command "apt-mark hold ${__hold_java}"
   fi
   if [[ $__hold_mongo ]]; then
-    apt-mark unhold "${__hold_mongo}"
+    __eubnt_run_command "apt-mark hold ${__hold_mongo}"
   fi
   if [[ $__hold_unifi ]]; then
-    apt-mark unhold "${__hold_unifi}"
+    __eubnt_run_command "apt-mark hold ${__hold_unifi}"
   fi
-  __cleanup_run_autoremove=true
+  __eubnt_run_command "apt-get dist-upgrade --yes"
+  __eubnt_run_command "apt-get install --fix-broken --yes"
+  if [[ $__hold_java ]]; then
+    __eubnt_run_command "apt-mark unhold ${__hold_java}"
+  fi
+  if [[ $__hold_mongo ]]; then
+    __eubnt_run_command "apt-mark unhold ${__hold_mongo}"
+  fi
+  if [[ $__hold_unifi ]]; then
+    __eubnt_run_command "apt-mark unhold ${__hold_unifi}"
+  fi
+  __run_autoremove=true
 }
 
+# Better random number generator from ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
 function __eubnt_install_java() {
   if [[ $__install_webupd8_java || $__install_java ]]; then
-    __eubnt_print_header "Installing Java...\\n"
-    # Install WebUpd8 team's Java for certain OS versions
+    __eubnt_show_header "Installing Java...\\n"
+    local set_java_alternative target_release
     if [[ $__install_webupd8_java ]]; then
       __eubnt_install_package "oracle-java8-installer"
       __eubnt_install_package "oracle-java8-set-default"
-    # Install regular Java for all others
     else
-      __eubnt_install_package "ca-certificates-java"
-      __eubnt_install_package "openjdk-8-jre-headless"
-      local set_java_alternative="java-1.8.0-openjdk-amd64"
-      if [[ $__is_32 ]]; then
-        set_java_alternative="java-1.8.0-openjdk-i386"
+      if [[ "${__os_version_name}" = "jessie" ]]; then
+        target_release="${__os_version_name}-backports"
       fi
-      java -version 2>&1 | grep --quiet "1.8.0" || update-java-alternatives --set "${set_java_alternative}"
+      __eubnt_install_package "ca-certificates-java" "${target_release:-}"
+      __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"
+      set_java_alternative=$(update-java-alternatives --list | awk '/^java-.*-openjdk-/{print $1}')
+      __eubnt_run_command "update-java-alternatives --set ${set_java_alternative}"
     fi
     __eubnt_install_package "jsvc"
     __eubnt_install_package "libcommons-daemon-java"
+    __eubnt_install_package "haveged"
+  fi
+}
+
+function __eubnt_purge_mongo() {
+  if [[ "${__purge_mongo:-}" && ! "${__is_unifi_installed:-}" ]]; then
+    __eubnt_show_header "Purging MongoDB...\\n"
+    __eubnt_run_command "apt-get purge --yes \"mongodb*\""
   fi
 }
 
 function __eubnt_install_mongo()
 {
-  # Currently this is intended to install Mongo 3.4 for 64-bit
-  # Skip if 32-bit and go with Mongo bundled in the UniFi controller package
   if [[ $__is_64 && $__install_mongo ]]; then
-    __eubnt_print_header "Installing MongoDB...\\n"
-    if [[ $__purge_mongo ]]; then
-      if [[ $__is_unifi_installed ]]; then
-        service unifi stop
-      fi
-      apt-get purge "mongodb*" --yes
-      apt-get autoremove --yes
-    fi
-    dpkg --list | grep " mongo.*-server " --quiet || apt-get install --yes mongodb-org
-    if [[ $__purge_mongo && $__is_unifi_installed ]]; then
-      service unifi start
+    __eubnt_show_header "Installing MongoDB...\\n"
+    if ! dpkg --list "mongodb-org-server" | grep "^i" --quiet &>/dev/null; then
+      __eubnt_install_package "mongodb-org"
     fi
   fi
 }
 
 function __eubnt_install_unifi()
 {
-  __eubnt_print_header "Installing UniFi Controller...\\n"
+  __eubnt_show_header "Installing UniFi Controller...\\n"
   local unifi_supported_versions=(5.6 5.8 5.9)
   local unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
   local selected_unifi_version=
@@ -475,7 +681,7 @@ function __eubnt_install_unifi()
   if [[ $__unifi_version_installed ]]; then
     __eubnt_show_notice "Version ${__unifi_version_installed} is currently installed\\n"
   fi
-  if [[ "${__quiet_mode:-}" ]]; then
+  if [[ "${__quick_mode:-}" ]]; then
     if [[ $__unifi_version_installed ]]; then
       selected_unifi_version="${__unifi_version_installed:0:3}"
     else
@@ -530,31 +736,31 @@ function __eubnt_install_unifi()
   done
 }
 
+# TODO: Add API call to make a backup
+# TODO: Add error handling in case install fails
 function __eubnt_install_unifi_version()
 {
   if [[ "${1:-}" ]]; then
     unifi_install_this_version="${1}"
   else
-    __eubnt_abort "No UniFi version specified to install"
+    __eubnt_show_error "No UniFi version specified to install"
   fi
-  echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${unifi_install_this_version} ubiquiti" | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
-  apt-get update
+  __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${unifi_install_this_version} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${unifi_install_this_version}"
+  __eubnt_run_command "apt-get update"
   unifi_updated_version=$(apt-cache policy unifi | grep "Candidate" | awk '{print $2}' | sed 's/-.*//g')
   if [[ "${__unifi_version_installed}" = "${unifi_updated_version}" ]]; then
     __eubnt_show_notice "\\nUniFi ${__unifi_version_installed} is already installed\\n"
     sleep 1
     return 0
   fi
-  __eubnt_print_header "Installing UniFi version ${unifi_updated_version}...\\n"
+  __eubnt_show_header "Installing UniFi version ${unifi_updated_version}...\\n"
   if [[ $__unifi_version_installed ]]; then
-    # TODO: Add API call to make a backup
     __eubnt_show_warning "Make sure you have a backup!\\n"
   fi
   if __eubnt_question_prompt "" "return"; then
+    echo "unifi unifi/has_backup boolean true" | debconf-set-selections
     apt-get install --yes unifi
     __unifi_version_installed="${unifi_updated_version}"
-    __eubnt_script_colors
-    # TODO: Add error handling in case install fails
     tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
     do
       if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
@@ -566,74 +772,93 @@ function __eubnt_install_unifi_version()
     done
     sleep 1
   else
-    echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
-    apt-get update
+    __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"
+    __eubnt_run_command "apt-get update"
   fi
 }
 
-function __eubnt_tweak_unifi() {
-  # TODO: Force more secure HTTPS connections
-  # unifi.https.ciphers=TLS_RSA_WITH_AES_256_CBC_SHA
-  # unifi.https.sslEnabledProtocols=TLSv1.2
-  # https://community.ubnt.com/t5/UniFi-Wireless/UniFI-Controller-TLS-1-2/m-p/1580362/highlight/true#M163612
-  # TODO: Tweak Java settings
-  # https://help.ubnt.com/hc/en-us/articles/115005159588-UniFi-How-to-Tune-the-Controller-for-High-Number-of-UniFi-Devices
-  true
-}
-
-function __eubnt_install_certbot() {
-  local source_backports domain_name email_address resolved_domain_name email_option run_certbot
+# TODO: Add Cloud Key support - https://www.naschenweng.info/2017/01/06/securing-ubiquiti-unifi-cloud-key-encrypt-automatic-dns-01-challenge/
+# TODO: Add DNS challenge support for Cloudflare
+###
+# Based on solution by Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
+function __eubnt_setup_certbot() {
+  if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
+    return 0
+  fi
+  local source_backports default_yes_no skip_certbot_questions domain_name email_address resolved_domain_name email_option days_to_renewal
+  __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if [[ "${__os_version_name}" = "jessie" ]]; then
-    source_backports="--target-release ${__os_version_name}-backports"
+    target_release="${__os_version_name}-backports"
   fi
-  if [[ "${__os_version_name}" != "precise" && "${__os_version_name}" != "wheezy" ]]; then
-    __eubnt_print_header "Setting up Let's Encrypt...\\n"
-    if [[ $(dpkg --list | grep " certbot ") && ! $(certbot certificates | grep "No certs found") ]]; then
-      certbot certificates
-      if __eubnt_question_prompt "Does your current Let's Encrypt setup look correct?" "return"; then
-        __unifi_domain_name=$(certbot certificates | grep "Domains: " | sed 's/.*:\ //')
-        return 0
-      fi
-    else
-      if ! __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return" "n"; then
+  default_yes_no="n"
+  if certbot certificates 2>/dev/null | grep --quiet "Domains: "; then
+    default_yes_no="y"
+  fi
+  if __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return" "${default_yes_no}"; then
+    __eubnt_install_package "certbot" "${target_release:-}"
+  else
+    return 0
+  fi
+  __eubnt_get_user_input "\\nDomain name to use for the UniFi Controller: " "domain_name"
+  days_to_renewal=0
+  if certbot certificates --domain "${domain_name:-}" | grep --quiet "Domains: "; then
+    __eubnt_run_command "certbot certificates --domain ${domain_name}" "foreground"
+    if __eubnt_question_prompt "Do you want to use the existing Let's Encrypt certificate?" "return"; then
+      days_to_renewal=$(certbot certificates --domain "${domain_name}" | grep --only-matching --max-count=1 "VALID: .*" | awk '{print $2}')
+      skip_certbot_questions=true
+    fi
+  fi
+  if [[ -z "${skip_certbot_questions:-}" ]]; then
+    __eubnt_get_user_input "\\nEmail address for renewal notifications (optional): " "email_address" "optional"
+  fi
+  resolved_domain_name=$(dig +short "${domain_name}")
+  if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
+    echo; __eubnt_show_warning "The domain ${domain_name} resolves to ${resolved_domain_name}\\n"
+    if ! __eubnt_question_prompt "" "return"; then
       return 0
-      fi
     fi
-    dpkg --list | grep " certbot " --quiet || apt-get install --yes certbot "${source_backports}"
-    echo; __eubnt_get_user_input "Domain name to use for the SSL certificate: " "domain_name"
-    echo; __eubnt_get_user_input "Email address for renewal notifications (optional): " "email_address" "optional"
-    resolved_domain_name=$(dig +short "${domain_name}")
-    if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
-      echo; __eubnt_show_warning "The domain ${domain_name} resolves to ${resolved_domain_name}\\n"
-      if ! __eubnt_question_prompt "" "return"; then
-        return 0
-      fi
-    fi
-    if [[ -n "${email_address}" ]]
-    then
-      email_option="--email ${email_address}"
-    else
-      email_option="--register-unsafely-without-email"
-    fi
-    if [[ -n "${domain_name}" ]]; then
-      local letsencrypt_scripts_dir="/usr/local/sbin/easy-ubnt"
-      [[ -d "${letsencrypt_scripts_dir}" ]] || mkdir "${letsencrypt_scripts_dir}"
-      local pre_hook_script="${letsencrypt_scripts_dir}/pre-hook_${domain_name}.sh"
-      local post_hook_script="${letsencrypt_scripts_dir}/post-hook_${domain_name}.sh"
-      local letscript_live_dir="${__letsencrypt_dir}/live/${domain_name}"
-      local letsencrypt_privkey="${letscript_live_dir}/privkey.pem"
-      local letsencrypt_fullchain="${letscript_live_dir}/fullchain.pem"
-      tee "${pre_hook_script}" >/dev/null <<EOF
+  fi
+  if [[ -n "${email_address:-}" ]]; then
+    email_option="--email ${email_address}"
+  else
+    email_option="--register-unsafely-without-email"
+  fi
+  if [[ -n "${domain_name:-}" ]]; then
+    local letsencrypt_scripts_dir pre_hook_script post_hook_script letscript_live_dir letscript_renewal_dir letscript_renewal_conf letsencrypt_privkey letsencrypt_fullchain force_renewal run_mode
+    letsencrypt_scripts_dir=$(mkdir --parents "${__eubnt_dir}/letsencrypt" && echo "${__eubnt_dir}/letsencrypt")
+    pre_hook_script="${letsencrypt_scripts_dir}/pre-hook_${domain_name}.sh"
+    post_hook_script="${letsencrypt_scripts_dir}/post-hook_${domain_name}.sh"
+    letscript_live_dir="${__letsencrypt_dir}/live/${domain_name}"
+    letscript_renewal_dir="${__letsencrypt_dir}/renewal"
+    letscript_renewal_conf="${letscript_renewal_dir}/${domain_name}.conf"
+    letsencrypt_privkey="${letscript_live_dir}/privkey.pem"
+    letsencrypt_fullchain="${letscript_live_dir}/fullchain.pem"
+    tee "${pre_hook_script}" &>/dev/null <<EOF
 #!/usr/bin/env bash
-ufw allow http
-ufw allow https
+http_process_file="${letsencrypt_scripts_dir}/http_process"
+rm "\${http_process_file}" 2>/dev/null
+if netstat -tulpn | grep ":80 " --quiet; then
+  http_process=$(netstat -tulpn | awk '/:80 /{print $7}' | sed 's/[0-9]*\///')
+  service "\${http_process}" stop
+  echo "\${http_process}" | tee "\${http_process_file}"
+fi
+if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") ]]; then
+  ufw allow http
+fi
 EOF
 # End of output to file
-      chmod +x "${pre_hook_script}"
-      tee "${post_hook_script}" >/dev/null <<EOF
+    chmod +x "${pre_hook_script}"
+    tee "${post_hook_script}" &>/dev/null <<EOF
 #!/usr/bin/env bash
-ufw delete allow http
-ufw delete allow https
+http_process_file="${letsencrypt_scripts_dir}/http_process"
+if [[ -s "\${http_process_file}" ]]; then
+  http_process=$(cat "\${http_process_file}")
+  service "\${http_process}" start
+fi
+rm "\${http_process_file}" 2>/dev/null
+if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") && ! \$(netstat -tulpn | grep ":80 ") ]]; then
+  ufw delete allow http
+fi
 if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
   cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s)
   openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise
@@ -643,42 +868,57 @@ if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
 fi
 EOF
 # End of output to file
-      chmod +x "${post_hook_script}"
-      local force_renewal="--keep-until-expiring"
-      local run_mode="--quiet"
-      echo
-      if __eubnt_question_prompt "Do you want to force certificate renewal?" "return"; then
+    chmod +x "${post_hook_script}"
+    force_renewal="--keep-until-expiring"
+    run_mode="--quiet"
+    if [[ "${days_to_renewal}" -ge 30 ]]; then
+      if __eubnt_question_prompt "\\nDo you want to force certificate renewal?" "return" "n"; then
         force_renewal="--force-renewal"
       fi
-      if [[ $__script_debug ]]; then
-        run_mode="--dry-run"
-      fi
-      # TODO: Add checks for existing certbot setup
-      certbot certonly --standalone --agree-tos --pre-hook "${pre_hook_script}" --post-hook "${post_hook_script}" --domain "${domain_name}" "${email_option}" "${force_renewal}" "${run_mode}"
-      # shellcheck disable=SC2181
-      if [[ $? -gt 0 ]]; then
-        __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
-        sleep 3
-      else
-        __unifi_domain_name="${domain_name}"
+    fi
+    if [[ $__script_debug ]]; then
+      run_mode="--dry-run"
+    fi
+    certbot certonly --standalone --agree-tos --pre-hook "${pre_hook_script}" --post-hook "${post_hook_script}" --domain "${domain_name}" "${email_option}" "${force_renewal}" "${run_mode}"
+    # shellcheck disable=SC2181
+    if [[ $? -gt 0 ]]; then
+      __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
+      sleep 3
+    else
+      __eubnt_show_success "Certbot succeeded for domain name: ${domain_name}"
+      __unifi_domain_name="${domain_name}"
+      sleep 3
+    fi
+    if [[ -f "${letscript_renewal_conf}" ]]; then
+      sed -i "s|pre_hook.*$|pre_hook = ${pre_hook_script}|" "${letscript_renewal_conf}"
+      sed -i "s|post_hook.*$|post_hook = ${post_hook_script}|" "${letscript_renewal_conf}"
+      if crontab -l | grep --quiet "^[^#]"; then
+        local found_file crontab_file
+        declare -a files_in_crontab
+        while IFS=$'\n' read -r found_file; do files_in_crontab+=("$found_file"); done < <(crontab -l | awk '/^[^#]/{print $6}')
+        for crontab_file in "${!files_in_crontab[@]}"; do
+          if grep --quiet "keystore" "${crontab_file}"; then
+            __eubnt_show_warning "Please check your crontab to make sure there aren't any conflicting Let's Encrypt renewal scripts"
+            sleep 3
+          fi
+        done
       fi
     fi
   fi
 }
 
 # Install OpenSSH server and harden the configuration
+###
+# Hardening the OpenSSH Server config according to best practices (https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f | https://linux-audit.com/audit-and-harden-your-ssh-configuration/)
 function __eubnt_setup_ssh_server() {
-  __eubnt_print_header "Setting up OpenSSH Server..."
-  if [[ ! $(dpkg --list | grep " openssh-server ") ]]; then
+  __eubnt_show_header "Setting up OpenSSH Server..."
+  if ! __eubnt_is_package_installed "openssh-server"; then
     echo
     if __eubnt_question_prompt "Do you want to install the OpenSSH server?" "return"; then
-      apt-get install --yes openssh-server
+      __eubnt_run_command "apt-get install --yes openssh-server"
     fi
   fi
   if [[ $(dpkg --list | grep "openssh-server") && -f "${__sshd_config}" ]]; then
-    # Hardening the OpenSSH Server config according to best practices
-    # https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f
-    # https://linux-audit.com/audit-and-harden-your-ssh-configuration/
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
     __eubnt_show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n"
     if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") ]]; then
@@ -692,6 +932,7 @@ function __eubnt_setup_ssh_server() {
         else
           echo "Port ${ssh_port}" | tee -a "${__sshd_config}"
         fi
+        __restart_ssh_server=true
       fi
     fi
     declare -A ssh_changes=(
@@ -714,28 +955,25 @@ function __eubnt_setup_ssh_server() {
           else
             echo "${recommended_setting}" | tee -a "${__sshd_config}"
           fi
+          __restart_ssh_server=true
         fi
       fi
     done
-    # Deduplicate lines in the SSH server config
-    # https://stackoverflow.com/questions/1444406/how-can-i-delete-duplicate-lines-in-a-file-in-unix
-    awk '!seen[$0]++' "${__sshd_config}" >/dev/null
-    __cleanup_restart_ssh_server=true
+    awk '!seen[$0]++' "${__sshd_config}" &>/dev/null # https://stackoverflow.com/a/1444448
   fi
 }
 
 function __eubnt_setup_ufw() {
-  __eubnt_print_header "Setting up UFW (Uncomplicated Firewall)..."
+  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
   echo
-  if [[ ! $(dpkg --list | grep " ufw ") || $(ufw status | grep "inactive") ]]; then
+  if [[ ! $(dpkg --list "ufw" | grep "^i") || ( $(command -v ufw) && $(ufw status | grep "inactive") ) ]]; then
     if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
       return 0
     fi
   fi
-  # Use UFW for basic firewall protection
   __eubnt_install_package "ufw"
   local unifi_system_properties unifi_http_port unifi_https_port unifi_portal_http_port unifi_portal_https_port unifi_throughput_port unifi_stun_port ssh_port
-  local unifi_system_properties="${__unifi_data_dir}/system.properties"
+  unifi_system_properties="${__unifi_data_dir}/system.properties"
   if [[ -f "${__sshd_config}" ]]; then
     ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
   fi
@@ -764,7 +1002,7 @@ function __eubnt_setup_ufw() {
     if [[ ! $unifi_stun_port ]]; then
       unifi_stun_port="3478"
     fi
-    tee "/etc/ufw/applications.d/unifi" >/dev/null <<EOF
+    tee "/etc/ufw/applications.d/unifi" &>/dev/null <<EOF
 [unifi]
 title=UniFi Ports
 description=Default ports used by the UniFi Controller
@@ -778,65 +1016,54 @@ EOF
 # End of output to file
   fi
   __eubnt_show_notice "\\nCurrent UFW status:\\n"
-  ufw status
+  __eubnt_run_command "ufw status" "foreground"
   echo
   if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
-    ufw --force reset
+    __eubnt_run_command "ufw --force reset"
   fi
   if [[ "${ssh_port:-}" ]]; then
-    ufw allow "${ssh_port}/tcp" >/dev/null
+    __eubnt_run_command "ufw allow ${ssh_port}/tcp"
   fi
   if [[ "${unifi_http_port:-}" && "${unifi_https_port:-}" ]]; then
     __unifi_https_port="${unifi_https_port}"
-    ufw allow from any to any app unifi >/dev/null
+    __eubnt_run_command "ufw allow from any to any app unifi"
     echo
     if __eubnt_question_prompt "Is this controller on your local network?" "return" "n"; then
-      ufw allow from any to any app unifi-local >/dev/null
+      __eubnt_run_command "ufw allow from any to any app unifi-local"
     else
-      ufw --force delete allow from any to any app unifi-local >/dev/null
+      __eubnt_run_command "ufw --force delete allow from any to any app unifi-local" "quiet"
     fi
   else
+    echo
     __eubnt_show_warning "Unable to determine UniFi ports to allow. Is it installed?\\n"
   fi
-  echo "y" | ufw enable >/dev/null
-  ufw reload
+  echo "y" | ufw enable >>"${__script_log}"
+  __eubnt_run_command "ufw reload"
   __eubnt_show_notice "\\nUpdated UFW status:\\n"
-  ufw status
+  __eubnt_run_command "ufw status" "foreground"
   sleep 1
 }
 
+# Recommended by CrossTalk Solutions (https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/)
 function __eubnt_setup_swap_file() {
-  # Recommended by CrossTalk Solutions
-  # https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/
-  fallocate -l 4G /swapfile
-  chmod 600 /swapfile
-  mkswap /swapfile
+  __eubnt_run_command "fallocate -l 4G /swapfile"
+  __eubnt_run_command "chmod 600 /swapfile"
+  __eubnt_run_command "mkswap /swapfile"
   if swapon /swapfile; then
-    echo "/swapfile none swap sw 0 0" | tee -a /etc/fstab
+    __eubnt_show_success "Created swap file!\\n"
+    __eubnt_echo_and_log "/swapfile none swap sw 0 0" "/etc/fstab" "append"
   else
     rm -rf /swapfile
-    __eubnt_show_warning "Unable to create swap file"
+    __eubnt_show_warning "Unable to create swap file!\\n"
   fi
   echo
 }
 
 function __eubnt_check_system() {
-  # Fix for stale sources in some cases
-  rm -rf /var/lib/apt/lists/*
-  echo -e "Checking for existing package updates, please wait...\\n"
-  apt-get clean --yes
-  apt-get update &>/dev/null
-  __eubnt_print_header "Checking system...\\n"
-  # What UBNT currently recommends
-  local os_version_name_display os_version_supported
-  local os_bit_recommended="64-bit"
-  local java_version_recommended="8"
-  local mongo_version_recommended="3.4.x"
-  local ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
-  local debian_supported_versions=("wheezy" "jessie" "stretch")
-  local have_space_for_swap=
-  local current_time=$(date)
-  # Only 32-bit and 64-bit are supported (i.e. not ARM)
+  local os_version_name_display os_version_supported os_version_recommended_display os_version_recommended os_bit have_space_for_swap
+  declare -a ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
+  declare -a debian_supported_versions=("wheezy" "jessie" "stretch")
+  __eubnt_show_header "Checking system...\\n"
   if [[ "${__architecture}" = "i686" ]]; then
     __is_32=true
     os_bit="32-bit"
@@ -844,18 +1071,17 @@ function __eubnt_check_system() {
     __is_64=true
     os_bit="64-bit"
   else
-    __eubnt_abort "${__architecture} is not supported"
+    __eubnt_show_error "${__architecture} is not supported"
   fi
-  # Only Debian and Ubuntu are supported
   if [[ "${__os_name}" = "Ubuntu" ]]; then
     __is_ubuntu=true
     os_version_recommended_display="16.04 Xenial"
     os_version_recommended="xenial"
     for version in "${!ubuntu_supported_versions[@]}"; do
       if [[ "${ubuntu_supported_versions[$version]}" = "${__os_version_name}" ]]; then
+        __os_version_name_ubuntu_equivalent="${__os_version_name}"
         # shellcheck disable=SC2001
         os_version_name_display=$(echo "${__os_version_name}" | sed 's/./\u&/')
-        __os_version_name_ubuntu_equivalent="${__os_version_name}"
         os_version_supported=true
         break
       fi
@@ -866,69 +1092,89 @@ function __eubnt_check_system() {
     os_version_recommended="stretch"
     for version in "${!debian_supported_versions[@]}"; do
       if [[ "${debian_supported_versions[$version]}" = "${__os_version_name}" ]]; then
+        __os_version_name_ubuntu_equivalent="${ubuntu_supported_versions[$version]}"
         # shellcheck disable=SC2001
         os_version_name_display=$(echo "${__os_version_name}" | sed 's/./\u&/')
-        __os_version_name_ubuntu_equivalent="${ubuntu_supported_versions[$version]}"
         os_version_supported=true
         break
       fi
     done
   else
-    __eubnt_abort "This script is for Debian or Ubuntu\\n\\nYou appear to have: ${__os_all_info}"
+    __eubnt_show_error "This script is for Debian or Ubuntu\\nYou appear to have: ${__os_all_info}\\n"
   fi
   if [[ ! $os_version_supported ]]; then
-    __eubnt_abort "${__os_name} ${__os_version} is not supported"
+    __eubnt_show_error "${__os_name} ${__os_version} is not supported\\n"
   fi
-  # Unable to gather information about the OS
   if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
-    __eubnt_abort "Unable to detect system information"
+    __eubnt_show_error "Unable to detect system information\\n"
   fi
-  # Display disk and memory space information
-  __eubnt_show_notice "Disk free space: ${__disk_free_space}\\nMemory total size: ${__memory_total}\\nSwap total size: ${__swap_total}\\n"
-  # Display information gathered about the OS
-  __eubnt_show_notice "System is ${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
-  # Show warnings if detected system information is outside of recommendations from UBNT
-  if [[ "${__os_version_name}" != "${os_version_recommended}" || "${os_bit}" != "${os_bit_recommended}" ]]; then
-    __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${os_bit_recommended}\\n"
-  fi
+  __eubnt_show_text "Disk free space is ${__colors_bold_text}${__disk_free_space}${__colors_default}\\n"
   if [[ "${__disk_free_space%G*}" -lt "${__recommended_disk_free_space%G*}" ]]; then
-    __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of disk free space\\n"
+    __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of free space\\n"
   else
     if [[ "${__disk_free_space%G*}" -gt $(( ${__recommended_disk_free_space%G*} + ${__recommended_swap_total_gb%G*} )) ]]; then
       have_space_for_swap=true
     fi
   fi
+  __eubnt_show_text "Memory total size is ${__colors_bold_text}${__memory_total}${__colors_default}\\n"
   if [[ "${__memory_total%M*}" -lt "${__recommended_memory_total%M*}" ]]; then
     __eubnt_show_warning "UBNT recommends at least ${__recommended_memory_total_gb} of memory\\n"
   fi
-  if [[ "${__swap_total%M*}" -eq 0 && $have_space_for_swap ]]; then
+  __eubnt_show_text "Swap total size is ${__colors_bold_text}${__swap_total}\\n"
+  if [[ "${__swap_total%M*}" -eq 0 && "${have_space_for_swap:-}" ]]; then
     if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb} swap file?" "return"; then
       __eubnt_setup_swap_file
     fi
   fi
-  __eubnt_show_success "Current time is ${current_time}\\n"
-  if ! __eubnt_question_prompt "Does the current time and timezone look correct?" "return"; then
-    __eubnt_install_package "ntp"
-    dpkg-reconfigure tzdata
-    current_time=$(date)
-    __eubnt_show_success "\\nUpdated time is ${current_time}\\n"
-    sleep 3
+  __eubnt_show_text "Operating system is ${__colors_bold_text}${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
+  if [[ "${__os_version_name}" != "${os_version_recommended}" || "${os_bit}" != "${__os_bit_recommended}" ]]; then
+    __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${__os_bit_recommended}\\n"
   fi
-  # Detect if Java is installed and what package and version
-  if [[ $(command -v java) ]]; then
-    if [[ $(dpkg --list | grep " oracle-java8-installer ") ]]; then
-      java_version_installed=$(dpkg --list | grep " oracle-java8-installer " | awk '{print $3}' | sed 's/-.*//g')
-      java_package_installed="oracle-java8-installer"
-    elif [[ $(dpkg --list | grep " openjdk-8-jre-headless") ]]; then
-      java_version_installed=$(dpkg --list | grep " openjdk-8-jre-headless" | awk '{print $3}' | sed 's/-.*//g')
-      java_package_installed="openjdk-8-jre-headless"
+  if [[ $(echo "${__nameservers}" | awk '{print $2}') ]]; then
+    __eubnt_show_text "Current nameservers in use are ${__colors_bold_text}${__nameservers}${__colors_default}\\n"
+  else
+    __eubnt_show_text "Current nameserver in use is ${__colors_bold_text}${__nameservers}${__colors_default}\\n"
+  fi
+  if ! dig +short "${__ubnt_dns}" &>/dev/null; then
+    if __eubnt_question_prompt "Unable to resolve ${__ubnt_dns}, do you want to add the ${__recommended_nameserver} nameserver?" "return"; then
+      echo "nameserver ${__recommended_nameserver}" | tee /etc/resolvconf/resolv.conf.d/base
+      
+      __eubnt_run_command "resolvconf -u"
+      __nameservers=$(awk '/nameserver/{print $2}' /etc/resolv.conf | xargs)
     fi
   fi
-  # Check to see if any Java updates are available and report install/update status
+  __eubnt_show_text "Current time is ${__colors_bold_text}$(date)${__colors_default}\\n"
+  if ! __eubnt_question_prompt "Does the current time and timezone look correct?" "return"; then
+    __eubnt_install_package "ntp"
+    __eubnt_install_package "ntpdate"
+    __eubnt_run_command "service ntp stop"
+    __eubnt_run_command "ntpdate 0.ubnt.pool.ntp.org"
+    __eubnt_run_command "service ntp start"
+    dpkg-reconfigure tzdata
+    __eubnt_show_success "Updated time is $(date)\\n"
+    sleep 3
+  fi
+  __eubnt_run_command "apt-get clean --yes"
+  __eubnt_run_command "apt-get update"
+  echo
+  if [[ $(command -v java) ]]; then
+    local java_version_installed java_package_installed set_java_alternative
+    if __eubnt_is_package_installed "oracle-java8-installer"; then
+      java_version_installed=$(dpkg --list "oracle-java8-installer" | awk '/^i/{print $3}' | sed 's/-.*//')
+      java_package_installed="oracle-java8-installer"
+      set_java_alternative=$(update-java-alternatives --list | awk '/^java-.*oracle/{print $1}')
+    fi
+    if __eubnt_is_package_installed "openjdk-8-jre-headless"; then
+      java_version_installed=$(dpkg --list "openjdk-8-jre-headless" | awk '/^i/{print $3}' | sed 's/-.*//')
+      java_package_installed="openjdk-8-jre-headless"
+      set_java_alternative=$(update-java-alternatives --list | awk '/^java-.*-openjdk/{print $1}')
+    fi
+    __eubnt_run_command "update-java-alternatives --set ${set_java_alternative}" "quiet"
+  fi
   if [[ -n "${java_version_installed:-}" ]]; then
-    java_update_available=$(apt-cache policy "${java_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+    java_update_available=$(apt-cache policy "${java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     if [[ -n "${java_update_available}" && "${java_update_available}" != "${java_version_installed}" ]]; then
-      __eubnt_show_notice "Java ${java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available\\n"
+      __eubnt_show_text "Java ${java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to update Java to ${java_update_available}?" "return"; then
         __hold_java="${java_package_installed}"
       fi
@@ -937,74 +1183,72 @@ function __eubnt_check_system() {
       __eubnt_show_success "Java ${java_version_installed} is good!\\n"
     fi
   else
-    __eubnt_show_notice "Java will be installed\\n"
+    __eubnt_show_text "Java will be installed\\n"
     __setup_source_java=true
   fi
-  # Detect if Mongo is installed and what version
-  if [[ $(dpkg --list | grep " mongodb.*-server ") ]]; then
-    mongo_version_installed=$(dpkg --list | grep " mongodb.*-server " | awk '{print $3}' | sed 's/.*://' | sed 's/-.*//g')
-    mongo_package_installed=$(dpkg --list | grep " mongodb.*-server " | awk '{print $2}')
-    if [[ $(dpkg --list | grep " mongodb-server ") && $__is_64 ]]; then
-      __eubnt_show_warning "Mongo officially maintains 'mongodb-org' packages but you have 'mongodb' packages installed\\n"
+  if __eubnt_is_package_installed "mongodb.*-server"; then
+    local mongo_version_installed mongo_package_installed mongo_update_available mongo_version_check
+    if __eubnt_is_package_installed "mongodb-org-server"; then
+      mongo_version_installed=$(dpkg --list | awk '/^i.*mongodb-org-server/{print $3}' | sed 's/.*://' | sed 's/-.*//')
+      mongo_package_installed="mongodb-org-server"
+    fi
+    if __eubnt_is_package_installed "mongodb-server"; then
+      mongo_version_installed=$(dpkg --list | awk '/^i.*mongodb-server/{print $3}' | sed 's/.*://' | sed 's/-.*//')
+      mongo_package_installed="mongodb-server"
+    fi
+    if [[ "${mongo_package_installed:-}" = "mongodb-server" && $__is_64 && ! -f "/lib/systemd/system/unifi.service" ]]; then
+      __eubnt_show_notice "Mongo officially maintains 'mongodb-org' packages but you have 'mongodb' packages installed\\n"
       if __eubnt_question_prompt "Do you want to remove the 'mongodb' packages and install 'mongodb-org' packages instead?" "return"; then
         __purge_mongo=true
-      else
-        __eubnt_show_warning "UniFi may not install correctly!\\n"
-        __eubnt_question_prompt
       fi
     fi
   fi
-  # Check to see if Mongo is a recommended version and if there are any updates
-  if [[ -n "${mongo_version_installed:-}" && ! $__purge_mongo ]]; then
-    mongo_update_available=$(apt-cache policy "${mongo_package_installed}" | grep 'Candidate' | awk '{print $2}' | sed 's/.*://' | sed 's/-.*//g')
+  if [[ -n "${mongo_version_installed:-}" && -n "${mongo_package_installed:-}" && ! $__purge_mongo ]]; then
+    mongo_update_available=$(apt-cache policy "${mongo_package_installed}" | awk '/Candidate/{print $2}' | sed 's/.*://' | sed 's/-.*//')
     # shellcheck disable=SC2001
     mongo_version_check=$(echo "${mongo_version_installed:0:3}" | sed 's/\.//')
-    if [[ "${mongo_version_check}" -gt "34" ]]; then
-      __eubnt_show_warning "UBNT recommends Mongo ${mongo_version_recommended}\\n"
-      if __eubnt_question_prompt "Do you want to downgrade Mongo to ${mongo_version_recommended}?" "return"; then
+    if [[ "${mongo_version_check:-}" -gt "34" && ! $(dpkg --list 2>/dev/null | grep "^i.*unifi.*") ]]; then
+      __eubnt_show_warning "UBNT recommends Mongo ${__mongo_version_recommended}\\n"
+      if __eubnt_question_prompt "Do you want to downgrade Mongo to ${__mongo_version_recommended}?" "return"; then
         __downgrade_mongo=true
         __setup_source_mongo=true
-      else
-        __eubnt_show_warning "UniFi may not install correctly!\\n"
-        __eubnt_question_prompt
       fi
     fi
-    if [[ ! $__downgrade_mongo && -n "${mongo_update_available}" && "${mongo_update_available}" != "${mongo_version_installed}" ]]; then
-      __eubnt_show_notice "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available\\n"
+    if [[ ! $__downgrade_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" != "${mongo_version_installed}" ]]; then
+      __eubnt_show_text "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to update Mongo to ${mongo_update_available}?" "return"; then
         __hold_mongo="${mongo_package_installed}"
       fi
       echo
-    elif [[ ! $__downgrade_mongo && -n "${mongo_update_available}" && "${mongo_update_available}" = "${mongo_version_installed}" ]]; then
+    elif [[ ! $__downgrade_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" = "${mongo_version_installed}" ]]; then
       __eubnt_show_success "Mongo ${mongo_version_installed} is good!\\n"
     fi
   else
-    __eubnt_show_notice "Mongo will be installed\\n"
+    __eubnt_show_text "Mongo will be installed\\n"
     __setup_source_mongo=true
   fi
-  # Detect if UniFi is installed and what version
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __is_unifi_installed=true
-    __unifi_version_installed=$(dpkg --list | grep " unifi " | awk '{print $3}' | sed 's/-.*//g')
-    __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+    if ! __eubnt_question_prompt "Have you made a current backup of your UniFi Controller?" "return"; then
+      __eubnt_show_error "A backup is required when UniFi is currently installed!"
+    fi
+    __unifi_version_installed=$(dpkg --list "unifi" | awk '/^i/{print $3}' | sed 's/-.*//')
+    __unifi_update_available=$(apt-cache policy "unifi" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
-      echo "deb http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" >/dev/null | tee "${__apt_sources_dir}/100-ubnt-unifi.list"
-      apt-get update &>/dev/null
-      __unifi_update_available=$(apt-cache policy "unifi" | grep 'Candidate' | awk '{print $2}' | sed 's/-.*//g')
+      __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"
+      __eubnt_run_command "apt-get update"
+      __unifi_update_available=$(apt-cache policy "unifi" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     fi
     if [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" != "${__unifi_version_installed}" ]]; then
-      __eubnt_show_notice "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${__unifi_update_available} is available\\n"
-      if ! __eubnt_question_prompt "Do you want to update UniFi to ${__unifi_update_available}?" "return"; then
-        __hold_unifi="unifi"
-      fi
-      echo
+      __eubnt_show_text "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${__unifi_update_available} is available\\n"
+      __hold_unifi="unifi"
     elif [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" = "${__unifi_version_installed}" ]]
     then
       __eubnt_show_success "UniFi ${__unifi_version_installed} is good!\\n"
       __unifi_update_available=
     fi
   else
-    __eubnt_show_notice "UniFi does not appear to be installed yet\n"
+    __eubnt_show_text "UniFi does not appear to be installed yet\\n"
   fi
 }
 
@@ -1012,36 +1256,40 @@ function __eubnt_check_system() {
 ##############################################################################
 
 __eubnt_script_colors
-__eubnt_print_header
-__eubnt_print_license
-if [[ "${__accepted_license:-}" ]]; then
+__eubnt_show_header
+__eubnt_show_license
+if [[ "${__accept_license:-}" ]]; then
   sleep 3
 else
   __eubnt_question_prompt "Do you agree to the MIT License and want to proceed?" "exit" "n"
 fi
 __eubnt_check_system
 __eubnt_question_prompt
+__eubnt_install_fixes
+__eubnt_purge_mongo
 __eubnt_setup_sources
-__eubnt_install_updates_dependencies
+__eubnt_install_updates_utils
 __eubnt_install_java
 __eubnt_install_mongo
 if [[ -f /var/run/reboot-required ]]; then
   echo
-  __eubnt_show_warning "A reboot is recommended. Run this script again after reboot to finish installing UniFi.\\n"
+  __eubnt_show_warning "A reboot is recommended.\\nRun this script again after reboot.\\n"
   # TODO: Restart the script automatically after reboot
-  if [[ "${__quiet_mode:-}" ]]; then
+  if [[ "${__quick_mode:-}" ]]; then
     __eubnt_show_warning "The system will automatically reboot in 10 seconds.\\n"
     sleep 10
   fi
   if __eubnt_question_prompt "Do you want to reboot now?" "return"; then
-    shutdown -r now
+    __eubnt_show_warning "Exiting script and rebooting system now!"
+    __reboot_system=true
+    exit 0
   fi
 fi
 __eubnt_install_unifi
 __eubnt_setup_ssh_server
-__eubnt_install_certbot
+__eubnt_setup_certbot
 __eubnt_setup_ufw
-__eubnt_show_success "\\nDone!"
+__eubnt_show_success "\\nDone!\\n"
 if [[ $__unifi_https_port ]]; then
   if [[ $__unifi_domain_name ]]; then
     controller_address="${__unifi_domain_name}"
