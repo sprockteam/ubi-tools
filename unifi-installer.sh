@@ -860,22 +860,25 @@ if [[ -s "\${http_process_file}" ]]; then
   http_process=$(cat "\${http_process_file}")
   service "\${http_process}" start &>/dev/null
 fi
-rm "\${http_process_file}" 2>/dev/null
+rm "\${http_process_file}" &>/dev/null
 if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") && ! \$(netstat -tulpn | grep ":80 ") ]]; then
   ufw delete allow http &>/dev/null
 fi
 if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
-  cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s) &>/dev/null
-  openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
-  keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
-  keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letscript_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
-  service unifi restart &>/dev/null
+  if ! md5sum -c ${letsencrypt_fullchain}.md5 &>/dev/null; then
+    md5sum ${letsencrypt_fullchain} >${letsencrypt_fullchain}.md5
+    cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s) &>/dev/null
+    openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
+    keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
+    keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letscript_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
+    service unifi restart &>/dev/null
+  fi
 fi
 EOF
 # End of output to file
     chmod +x "${post_hook_script}"
     force_renewal="--keep-until-expiring"
-    run_mode="--quiet"
+    run_mode="--keep-until-expiring"
     if [[ "${days_to_renewal}" -ge 30 ]]; then
       if __eubnt_question_prompt "\\nDo you want to force certificate renewal?" "return" "n"; then
         force_renewal="--force-renewal"
@@ -883,14 +886,18 @@ EOF
     fi
     if [[ $__script_debug ]]; then
       run_mode="--dry-run"
+    else
+      if __eubnt_question_prompt "Do you want to do a dry run?" "return" "n"; then
+        run_mode="--dry-run"
+      fi
     fi
     # shellcheck disable=SC2086
-    if certbot certonly --standalone --agree-tos --noninteractive --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode} 2>/dev/null; then
-      __eubnt_show_success "Certbot succeeded for domain name: ${domain_name}"
+    if certbot certonly --non-interactive --standalone --agree-tos --noninteractive --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode} 2>/dev/null; then
+      __eubnt_show_success "\\nCertbot succeeded for domain name: ${domain_name}"
       __unifi_domain_name="${domain_name}"
       sleep 3
     else
-      __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
+      __eubnt_show_warning "\\nCertbot failed for domain name: ${domain_name}"
       sleep 3
     fi
     if [[ -f "${letscript_renewal_conf}" ]]; then
