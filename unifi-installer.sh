@@ -1132,7 +1132,8 @@ function __eubnt_check_system() {
     __eubnt_show_error "This script is for Debian or Ubuntu\\nYou appear to have: ${__os_all_info}\\n"
   fi
   if [[ ! $os_version_supported ]]; then
-    __eubnt_show_error "${__os_name} ${__os_version} is not supported\\n"
+    __eubnt_show_warning "${__os_name} ${__os_version} is not officially supported\\n"
+    __eubnt_question_prompt
   fi
   if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
     __eubnt_show_error "Unable to detect system information\\n"
