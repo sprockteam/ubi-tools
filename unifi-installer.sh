@@ -118,7 +118,6 @@ __is_unifi_installed=
 __setup_source_java=
 __setup_source_mongo=
 __purge_mongo=
-__downgrade_mongo=
 __hold_java=
 __hold_mongo=
 __hold_unifi=
@@ -613,6 +612,7 @@ function __eubnt_install_updates_utils() {
   __eubnt_install_package "software-properties-common"
   __eubnt_install_package "unattended-upgrades"
   __eubnt_install_package "curl"
+  __eubnt_install_package "psmisc"
   __eubnt_install_package "binutils"
   __eubnt_install_package "dnsutils"
   if [[ $__hold_java ]]; then
@@ -667,7 +667,9 @@ function __eubnt_install_java() {
 function __eubnt_purge_mongo() {
   if [[ "${__purge_mongo:-}" && ! "${__is_unifi_installed:-}" ]]; then
     __eubnt_show_header "Purging MongoDB...\\n"
-    __eubnt_run_command "apt-get purge --yes \"mongodb*\""
+    apt-get purge --yes "mongodb*"
+    rm "${__apt_sources_dir}/mongodb"*
+    __eubnt_run_command "apt-get update"
   fi
 }
 
@@ -1224,6 +1226,7 @@ function __eubnt_check_system() {
       __eubnt_show_notice "Mongo officially maintains 'mongodb-org' packages but you have 'mongodb' packages installed\\n"
       if __eubnt_question_prompt "Do you want to remove the 'mongodb' packages and install 'mongodb-org' packages instead?" "return"; then
         __purge_mongo=true
+        __setup_source_mongo=true
       fi
     fi
   fi
@@ -1234,17 +1237,17 @@ function __eubnt_check_system() {
     if [[ "${mongo_version_check:-}" -gt "34" && ! $(dpkg --list 2>/dev/null | grep "^i.*unifi.*") ]]; then
       __eubnt_show_warning "UBNT recommends Mongo ${__mongo_version_recommended}\\n"
       if __eubnt_question_prompt "Do you want to downgrade Mongo to ${__mongo_version_recommended}?" "return"; then
-        __downgrade_mongo=true
+        __purge_mongo=true
         __setup_source_mongo=true
       fi
     fi
-    if [[ ! $__downgrade_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" != "${mongo_version_installed}" ]]; then
+    if [[ ! $__purge_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" != "${mongo_version_installed}" ]]; then
       __eubnt_show_text "Mongo ${mongo_version_installed} is installed, ${__colors_warning_text}version ${mongo_update_available} is available\\n"
       if ! __eubnt_question_prompt "Do you want to update Mongo to ${mongo_update_available}?" "return"; then
         __hold_mongo="${mongo_package_installed}"
       fi
       echo
-    elif [[ ! $__downgrade_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" = "${mongo_version_installed}" ]]; then
+    elif [[ ! $__purge_mongo && -n "${mongo_update_available:-}" && "${mongo_update_available:-}" = "${mongo_version_installed}" ]]; then
       __eubnt_show_success "Mongo ${mongo_version_installed} is good!\\n"
     fi
   else
