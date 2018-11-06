@@ -8,10 +8,11 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.5.0"
+__script_version="v0.5.1"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
-Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer)"
+Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
+Miller (adrianmmiller)"
 
 ### Copyrights and Mentions
 ##############################################################################
@@ -57,7 +58,7 @@ set -o nounset
 
 # Set magic variables for script and environment
 __script_time=$(date +%s)
-__script_name=$(basename "${0}")
+__script_name=$(basename "${0}" .sh)
 __dir=$(cd "$(dirname "${0}")" && pwd)
 __file="${__dir}/${__script_name}"
 __base=$(basename "${__file}" .sh)
@@ -100,7 +101,7 @@ __recommended_disk_free_space="10GB"
 __recommended_memory_total="2048MB"
 __recommended_memory_total_gb="2GB"
 __recommended_swap_total="4096MB"
-__recommended_swap_total_gb="4GB"
+__recommended_swap_total_gb="2GB"
 __os_bit_recommended="64-bit"
 __java_version_recommended="8"
 __mongo_version_recommended="3.4.x"
@@ -152,6 +153,7 @@ __spinner="-\\|/"
 # Remove un-needed packages if any
 # Clear display and show UniFi service status
 function __eubnt_cleanup_before_exit() {
+  local log_files_to_delete
   echo -e "${__colors_default}\\nCleaning up script, please wait...\\n"
   if [[ $__restart_ssh_server ]]; then
     __eubnt_run_command "service ssh restart"
@@ -167,27 +169,24 @@ function __eubnt_cleanup_before_exit() {
     __eubnt_run_command "apt-get clean --yes"
     __eubnt_run_command "apt-get autoremove --yes"
   fi
-  local keep_log
-  if [[ -s "${__script_log:-}" ]]; then
-    if __eubnt_question_prompt "\\nDo you want to keep the log file?" "return"; then
-      keep_log=true
-    fi
-  fi
   if [[ -f "/lib/systemd/system/unifi.service" && ! $__script_debug && ! "${__reboot_system:-}" ]]; then
     clear
     __eubnt_echo_and_log "Dumping current UniFi Controller status...\\n"
     __eubnt_run_command "service unifi status | cat" "foreground"
     echo
   fi
-  if [[ -z "${keep_log:-}" ]]; then
-    rm "${__script_log}"
+  if [[ -d "${__script_log_dir}" && -f "${__script_log}" ]]; then
+    log_files_to_delete=$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>6')
+    if [[ -n "${log_files_to_delete}" ]]; then
+      echo "${log_files_to_delete}" | xargs --max-lines=1 rm
+    fi
   fi
   for var_name in ${!__*}; do
     if [[ "${var_name}" != "__reboot_system" ]]; then
       unset -v "${var_name}"
     fi
   done
-  if [[ "${__reboot_system:-}" ]]; then
+  if [[ $__reboot_system ]]; then
     shutdown -r now
   fi
 }
@@ -292,7 +291,7 @@ function __eubnt_show_header() {
 # Show the license and disclaimer for this script
 function __eubnt_show_license() {
   __eubnt_show_text "MIT License\\nCopyright (c) 2018 SprockTech, LLC and contributors\\n"
-  __eubnt_show_text "${__script_contributors:-}\\n"
+  __eubnt_show_notice "${__script_contributors:-}\\n"
   __eubnt_show_warning "This script will guide you through installing and upgrading
 the UniFi Controller from UBNT, and securing this system using best
 practices. It is intended to work on systems that will be dedicated
@@ -381,7 +380,7 @@ function __eubnt_run_command() {
   declare -a full_command=()
   IFS=' ' read -r -a full_command <<< "${1}"
   if [[ ! $(command -v "${full_command[0]}") ]]; then
-    __eubnt_show_error "Unknown command: ${full_command[0]} at $(caller)"
+    __eubnt_show_error "Unknown command ${full_command[0]} at $(caller)"
   fi
   if [[ "${full_command[1]}" != "echo" ]]; then
     __eubnt_add_to_log "${1}"
@@ -397,10 +396,13 @@ function __eubnt_run_command() {
   if [[ -n "${background_pid:-}" ]]; then
     local i=0
     while [[ -d /proc/$background_pid ]]; do
-      echo -e -n "\\r${1} [${__spinner:i++%${#__spinner}:1}]"
+      echo -e -n "\\rRunning ${1} [${__spinner:i++%${#__spinner}:1}]"
       sleep 0.5
+      if [[ $i -gt 360 ]]; then
+        break
+      fi
     done
-    __eubnt_echo_and_log "\\r${1} [\\xE2\\x9C\\x93]\\n"
+    __eubnt_echo_and_log "\\rRunning ${1} [\\xE2\\x9C\\x93]\\n"
   fi
   return 0
 }
@@ -423,7 +425,7 @@ function __eubnt_add_source() {
 # $1: The 32-bit hex fingerprint of the key to add
 function __eubnt_add_key() {
   if [[ "${1:-}" ]]; then
-    if ! apt-key list 2>/dev/null | grep --quiet "${1}"; then
+    if ! apt-key list 2>/dev/null | grep --quiet "${1:0:4}.*${1:4:4}"; then
       __eubnt_run_command "apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys ${1}"
     fi
   fi
@@ -449,6 +451,8 @@ function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
     local target_release
     if ! apt-get install --simulate "${1}" &>/dev/null; then
+      __eubnt_add_ubuntu_sources
+      __eubnt_run_command "apt-get update"
       __eubnt_run_command "apt-get install --fix-broken --yes"
     fi
     if apt-get install --simulate "${1}" &>/dev/null; then
@@ -464,10 +468,10 @@ function __eubnt_install_package() {
         fi
         __eubnt_run_command "apt-get install --yes ${target_release:-}${1}"
       else
-        __eubnt_echo_and_log "Package already installed: ${1}\\n"
+        __eubnt_echo_and_log "Package ${1} already installed [\\xE2\\x9C\\x93]\\n"
       fi
     else
-      __eubnt_show_error "Unable to install package: ${1} at $(caller)"
+      __eubnt_show_error "Unable to install package ${1} at $(caller)"
     fi
   fi
 }
@@ -517,9 +521,7 @@ function __eubnt_setup_sources() {
     __eubnt_install_package "dirmngr"
   fi
   if [[ $__is_ubuntu ]]; then
-    __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main"
-    __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main"
-    __eubnt_add_source "http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main"
+    __eubnt_add_ubuntu_sources
     if [[ "${__os_version_name}" != "precise" ]]; then
       __eubnt_add_source "http://ppa.launchpad.net/certbot/certbot/ubuntu ${__os_version_name} main" "ppa\\.laundpad\\.net.*${__os_version_name}.*main"
       __eubnt_add_key "75BCA694"
@@ -562,6 +564,12 @@ function __eubnt_setup_sources() {
   fi
   __eubnt_add_key "C0A52C50"
   __eubnt_run_command "apt-get update"
+}
+
+function __eubnt_add_ubuntu_sources() {
+  __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main"
+  __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main"
+  __eubnt_add_source "http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main"
 }
 
 # Collection of different fixes to do pre/post apt install/upgrade
@@ -631,6 +639,7 @@ function __eubnt_install_updates_utils() {
 }
 
 # Better random number generator from ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
+# Virtual memory tweaks from adrianmmiller
 function __eubnt_install_java() {
   if [[ $__install_webupd8_java || $__install_java ]]; then
     __eubnt_show_header "Installing Java...\\n"
@@ -650,6 +659,8 @@ function __eubnt_install_java() {
     __eubnt_install_package "jsvc"
     __eubnt_install_package "libcommons-daemon-java"
     __eubnt_install_package "haveged"
+    __eubnt_run_command "sysctl vm.swappiness=10"
+    __eubnt_run_command "sysctl vm.vfs_cache_pressure=50"
   fi
 }
 
@@ -664,7 +675,7 @@ function __eubnt_install_mongo()
 {
   if [[ $__is_64 && $__install_mongo ]]; then
     __eubnt_show_header "Installing MongoDB...\\n"
-    if ! dpkg --list "mongodb-org-server" | grep "^i" --quiet &>/dev/null; then
+    if ! dpkg --list "mongodb-org-server" 2>/dev/null | grep "^i" --quiet &>/dev/null; then
       __eubnt_install_package "mongodb-org"
     fi
   fi
@@ -673,9 +684,9 @@ function __eubnt_install_mongo()
 function __eubnt_install_unifi()
 {
   __eubnt_show_header "Installing UniFi Controller...\\n"
-  local unifi_supported_versions=(5.6 5.8 5.9)
-  local unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
-  local selected_unifi_version=
+  local selected_unifi_version
+  declare -a unifi_supported_versions=(5.6 5.8 5.9)
+  declare -a unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
   declare -a unifi_versions_to_install=()
   declare -a unifi_versions_to_select=()
   if [[ $__unifi_version_installed ]]; then
@@ -690,8 +701,12 @@ function __eubnt_install_unifi()
   else
     for version in "${!unifi_supported_versions[@]}"; do
       if [[ $__unifi_version_installed ]]; then
-        if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" && $__unifi_update_available ]]; then
-          unifi_versions_to_select+=("${__unifi_update_available}")
+        if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" ]]; then
+          if [[ $__unifi_update_available ]]; then
+            unifi_versions_to_select+=("${__unifi_update_available}")
+          else
+            unifi_versions_to_select+=("${__unifi_version_installed}")
+          fi
         elif [[ "${unifi_supported_versions[$version]:2:1}" -gt "${__unifi_version_installed:2:1}" ]]; then
           unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
         fi
@@ -699,27 +714,21 @@ function __eubnt_install_unifi()
         unifi_versions_to_select+=("${unifi_supported_versions[$version]}.x")
       fi
     done
-    if [[ "${#unifi_versions_to_select[@]}" -eq 1 ]]; then
-      selected_unifi_version="${unifi_versions_to_select[0]%.*}"
-    elif [[ "${#unifi_versions_to_select[@]}" -gt 1 ]]; then
-      unifi_versions_to_select+=("None")
-      __eubnt_show_notice "Which controller do you want to install or upgrade to?\\n"
-      select version in "${unifi_versions_to_select[@]}"; do
-        case "${version}" in
-          "")
-            selected_unifi_version="${__unifi_version_stable}"
-            break;;
-          *)
-            if [[ "${version}" = "None" ]]; then
-              return 0
-            fi
-            selected_unifi_version="${version%.*}"
-            break;;
-        esac
-      done
-    else
-      return 0
-    fi
+    unifi_versions_to_select+=("None")
+    __eubnt_show_notice "Which controller do you want to install or upgrade to?\\n"
+    select version in "${unifi_versions_to_select[@]}"; do
+      case "${version}" in
+        "")
+          selected_unifi_version="${__unifi_version_stable}"
+          break;;
+        *)
+          if [[ "${version}" = "None" ]]; then
+            return 0
+          fi
+          selected_unifi_version="${version%.*}"
+          break;;
+      esac
+    done
   fi
   if [[ $__unifi_version_installed ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
@@ -785,16 +794,12 @@ function __eubnt_setup_certbot() {
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
     return 0
   fi
-  local source_backports default_yes_no skip_certbot_questions domain_name email_address resolved_domain_name email_option days_to_renewal
+  local source_backports skip_certbot_questions domain_name email_address resolved_domain_name email_option days_to_renewal
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if [[ "${__os_version_name}" = "jessie" ]]; then
     target_release="${__os_version_name}-backports"
   fi
-  default_yes_no="n"
-  if certbot certificates 2>/dev/null | grep --quiet "Domains: "; then
-    default_yes_no="y"
-  fi
-  if __eubnt_question_prompt "Do you want to use Let's Encrypt?" "return" "${default_yes_no}"; then
+  if __eubnt_question_prompt "Do you want to setup or re-setup Let's Encrypt?" "return" "n"; then
     __eubnt_install_package "certbot" "${target_release:-}"
   else
     return 0
@@ -813,7 +818,7 @@ function __eubnt_setup_certbot() {
   fi
   resolved_domain_name=$(dig +short "${domain_name}")
   if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
-    echo; __eubnt_show_warning "The domain ${domain_name} resolves to ${resolved_domain_name}\\n"
+    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__machine_ip_address}\\n"
     if ! __eubnt_question_prompt "" "return"; then
       return 0
     fi
@@ -836,14 +841,14 @@ function __eubnt_setup_certbot() {
     tee "${pre_hook_script}" &>/dev/null <<EOF
 #!/usr/bin/env bash
 http_process_file="${letsencrypt_scripts_dir}/http_process"
-rm "\${http_process_file}" 2>/dev/null
+rm "\${http_process_file}" &>/dev/null
 if netstat -tulpn | grep ":80 " --quiet; then
   http_process=$(netstat -tulpn | awk '/:80 /{print $7}' | sed 's/[0-9]*\///')
-  service "\${http_process}" stop
-  echo "\${http_process}" | tee "\${http_process_file}"
+  service "\${http_process}" stop &>/dev/null
+  echo "\${http_process}" >"\${http_process_file}"
 fi
 if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") ]]; then
-  ufw allow http
+  ufw allow http &>/dev/null
 fi
 EOF
 # End of output to file
@@ -853,18 +858,18 @@ EOF
 http_process_file="${letsencrypt_scripts_dir}/http_process"
 if [[ -s "\${http_process_file}" ]]; then
   http_process=$(cat "\${http_process_file}")
-  service "\${http_process}" start
+  service "\${http_process}" start &>/dev/null
 fi
 rm "\${http_process_file}" 2>/dev/null
 if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") && ! \$(netstat -tulpn | grep ":80 ") ]]; then
-  ufw delete allow http
+  ufw delete allow http &>/dev/null
 fi
 if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
-  cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s)
-  openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise
-  keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise
-  keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letscript_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt
-  service unifi restart
+  cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s) &>/dev/null
+  openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
+  keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
+  keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letscript_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
+  service unifi restart &>/dev/null
 fi
 EOF
 # End of output to file
@@ -879,19 +884,18 @@ EOF
     if [[ $__script_debug ]]; then
       run_mode="--dry-run"
     fi
-    certbot certonly --standalone --agree-tos --pre-hook "${pre_hook_script}" --post-hook "${post_hook_script}" --domain "${domain_name}" "${email_option}" "${force_renewal}" "${run_mode}"
-    # shellcheck disable=SC2181
-    if [[ $? -gt 0 ]]; then
-      __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
-      sleep 3
-    else
+    # shellcheck disable=SC2086
+    if certbot certonly --standalone --agree-tos --noninteractive --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode} 2>/dev/null; then
       __eubnt_show_success "Certbot succeeded for domain name: ${domain_name}"
       __unifi_domain_name="${domain_name}"
       sleep 3
+    else
+      __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
+      sleep 3
     fi
     if [[ -f "${letscript_renewal_conf}" ]]; then
-      sed -i "s|pre_hook.*$|pre_hook = ${pre_hook_script}|" "${letscript_renewal_conf}"
-      sed -i "s|post_hook.*$|post_hook = ${post_hook_script}|" "${letscript_renewal_conf}"
+      sed -i "s|^pre_hook.*$|pre_hook = ${pre_hook_script}|" "${letscript_renewal_conf}"
+      sed -i "s|^post_hook.*$|post_hook = ${post_hook_script}|" "${letscript_renewal_conf}"
       if crontab -l | grep --quiet "^[^#]"; then
         local found_file crontab_file
         declare -a files_in_crontab
@@ -1021,20 +1025,29 @@ EOF
   if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
     __eubnt_run_command "ufw --force reset"
   fi
-  if [[ "${ssh_port:-}" ]]; then
-    __eubnt_run_command "ufw allow ${ssh_port}/tcp"
+  if [[ -n "${ssh_port:-}" ]]; then
+    if __eubnt_question_prompt "Do you want to allow access to SSH from any host?" "return"; then
+      __eubnt_run_command "ufw allow ${ssh_port}/tcp"
+    else
+      __eubnt_run_command "ufw --force delete allow ${ssh_port}/tcp" "quiet"
+    fi
+    echo
   fi
   if [[ "${unifi_http_port:-}" && "${unifi_https_port:-}" ]]; then
     __unifi_https_port="${unifi_https_port}"
-    __eubnt_run_command "ufw allow from any to any app unifi"
+    if __eubnt_question_prompt "Do you want to allow access to the UniFi ports from any host?" "return"; then
+      __eubnt_run_command "ufw allow from any to any app unifi"
+    else
+      __eubnt_run_command "ufw --force delete allow from any to any app unifi" "quiet"
+    fi
     echo
     if __eubnt_question_prompt "Is this controller on your local network?" "return" "n"; then
       __eubnt_run_command "ufw allow from any to any app unifi-local"
     else
       __eubnt_run_command "ufw --force delete allow from any to any app unifi-local" "quiet"
     fi
-  else
     echo
+  else
     __eubnt_show_warning "Unable to determine UniFi ports to allow. Is it installed?\\n"
   fi
   echo "y" | ufw enable >>"${__script_log}"
@@ -1046,12 +1059,16 @@ EOF
 
 # Recommended by CrossTalk Solutions (https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/)
 function __eubnt_setup_swap_file() {
-  __eubnt_run_command "fallocate -l 4G /swapfile"
+  __eubnt_run_command "fallocate -l 2G /swapfile"
   __eubnt_run_command "chmod 600 /swapfile"
   __eubnt_run_command "mkswap /swapfile"
   if swapon /swapfile; then
-    __eubnt_show_success "Created swap file!\\n"
-    __eubnt_echo_and_log "/swapfile none swap sw 0 0" "/etc/fstab" "append"
+    if grep --quiet "^/swapfile " "/etc/fstab"; then
+      sed -i "s|^/swapfile.*$|/swapfile none swap sw 0 0|" "/etc/fstab"
+    else
+      echo "/swapfile none swap sw 0 0" >>/etc/fstab
+    fi
+    __eubnt_show_success "\\nCreated swap file!\\n"
   else
     rm -rf /swapfile
     __eubnt_show_warning "Unable to create swap file!\\n"
@@ -1064,6 +1081,9 @@ function __eubnt_check_system() {
   declare -a ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
   declare -a debian_supported_versions=("wheezy" "jessie" "stretch")
   __eubnt_show_header "Checking system...\\n"
+  __eubnt_run_command "apt-get clean --yes"
+  __eubnt_run_command "apt-get update"
+  echo
   if [[ "${__architecture}" = "i686" ]]; then
     __is_32=true
     os_bit="32-bit"
@@ -1154,9 +1174,6 @@ function __eubnt_check_system() {
     __eubnt_show_success "Updated time is $(date)\\n"
     sleep 3
   fi
-  __eubnt_run_command "apt-get clean --yes"
-  __eubnt_run_command "apt-get update"
-  echo
   if [[ $(command -v java) ]]; then
     local java_version_installed java_package_installed set_java_alternative
     if __eubnt_is_package_installed "oracle-java8-installer"; then
@@ -1229,23 +1246,22 @@ function __eubnt_check_system() {
   fi
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __is_unifi_installed=true
-    if ! __eubnt_question_prompt "Have you made a current backup of your UniFi Controller?" "return"; then
-      __eubnt_show_error "A backup is required when UniFi is currently installed!"
-    fi
     __unifi_version_installed=$(dpkg --list "unifi" | awk '/^i/{print $3}' | sed 's/-.*//')
     __unifi_update_available=$(apt-cache policy "unifi" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
       __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"
-      __eubnt_run_command "apt-get update"
+      __eubnt_run_command "apt-get update" "quiet"
       __unifi_update_available=$(apt-cache policy "unifi" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     fi
     if [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" != "${__unifi_version_installed}" ]]; then
       __eubnt_show_text "UniFi ${__unifi_version_installed} is installed, ${__colors_warning_text}version ${__unifi_update_available} is available\\n"
       __hold_unifi="unifi"
-    elif [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" = "${__unifi_version_installed}" ]]
-    then
+    elif [[ -n "${__unifi_update_available}" && "${__unifi_update_available}" = "${__unifi_version_installed}" ]]; then
       __eubnt_show_success "UniFi ${__unifi_version_installed} is good!\\n"
       __unifi_update_available=
+      if ! __eubnt_question_prompt "Have you made a current backup of your UniFi Controller?" "return"; then
+        __eubnt_show_error "A backup is required when UniFi is currently installed!"
+      fi
     fi
   else
     __eubnt_show_text "UniFi does not appear to be installed yet\\n"
@@ -1255,6 +1271,7 @@ function __eubnt_check_system() {
 ### Execution of script
 ##############################################################################
 
+ln --force --symbolic "${__script_log}" "${__script_log_dir}/${__script_name}-latest.log"
 __eubnt_script_colors
 __eubnt_show_header
 __eubnt_show_license
