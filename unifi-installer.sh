@@ -1134,6 +1134,16 @@ function __eubnt_check_system() {
   if [[ ! $os_version_supported ]]; then
     __eubnt_show_warning "${__os_name} ${__os_version} is not officially supported\\n"
     __eubnt_question_prompt
+    # shellcheck disable=SC2001
+    os_version_name_display=$(echo "${__os_version_name}" | sed 's/./\u&/')
+    if [[ $__is_debian ]]; then
+      __os_version_name="stretch"
+      __os_version_name_ubuntu_equivalent="xenial"
+    else
+      __os_version_name="bionic"
+      __os_version_name_ubuntu_equivalent="bionic"
+    fi
+    os_version_supported=true
   fi
   if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
     __eubnt_show_error "Unable to detect system information\\n"
