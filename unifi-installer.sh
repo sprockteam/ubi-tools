@@ -171,9 +171,12 @@ function __eubnt_cleanup_before_exit() {
   if [[ -f "/lib/systemd/system/unifi.service" && ! $__reboot_system ]]; then
     __eubnt_show_header "Collecting UniFi Controller info..."
     local controller_status
-    if controller_status=$(service unifi status | grep --only-matching "Active: .*" | sed 's/Active:/Service status:/'); then
-      __eubnt_show_notice "\\n${controller_status}"
+    if [[ $(service unifi status | wc --lines) -gt 1 ]]; then
+      controller_status=$(service unifi status | grep --only-matching "Active: .*" | sed 's/Active:/Service status:/')
+    else
+      controller_status="Service status: $(service unifi status)"
     fi
+    __eubnt_show_notice "\\n${controller_status}"
     if [[ -n "${__unifi_https_port:-}" ]]; then
       local controller_address
       if [[ -n "${__unifi_domain_name:-}" ]]; then
