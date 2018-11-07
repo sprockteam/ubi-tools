@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.5.1"
+__script_version="v0.5.2"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
@@ -145,12 +145,12 @@ __spinner="-\\|/"
 ##############################################################################
 
 # Run miscellaneous tasks before exiting
-# TODO: Display more useful information
 ###
 # Restart services if needed
 # Clean up source lists if needed
 # Remove un-needed packages if any
-# Clear display and show UniFi service status
+# Show UniFi Controller information post-setup
+# Unset script variables
 function __eubnt_cleanup_before_exit() {
   local log_files_to_delete
   echo -e "${__colors_default}\\nCleaning up script, please wait...\\n"
@@ -168,11 +168,21 @@ function __eubnt_cleanup_before_exit() {
     __eubnt_run_command "apt-get clean --yes"
     __eubnt_run_command "apt-get autoremove --yes"
   fi
-  if [[ -f "/lib/systemd/system/unifi.service" && ! $__script_debug && ! "${__reboot_system:-}" ]]; then
-    clear
-    __eubnt_echo_and_log "Dumping current UniFi Controller status...\\n"
-    __eubnt_run_command "service unifi status | cat" "foreground"
-    echo
+  if [[ -f "/lib/systemd/system/unifi.service" && ! $__reboot_system ]]; then
+    __eubnt_show_header "Collecting UniFi Controller info..."
+    local controller_status
+    if controller_status=$(service unifi status | grep --only-matching "Active: .*" | sed 's/Active:/Service status:/'); then
+      __eubnt_show_notice "\\n${controller_status}"
+    fi
+    if [[ -n "${__unifi_https_port:-}" ]]; then
+      local controller_address
+      if [[ -n "${__unifi_domain_name:-}" ]]; then
+        controller_address="${__unifi_domain_name}"
+      else
+        controller_address="${__machine_ip_address}"
+      fi
+      __eubnt_show_notice "\\nWeb address: https://${controller_address}:${__unifi_https_port}/manage/\\n"
+    fi
   fi
   if [[ -d "${__script_log_dir}" && -f "${__script_log}" ]]; then
     log_files_to_delete=$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>6')
@@ -436,7 +446,10 @@ function __eubnt_is_package_installed() {
   if [[ -z "${1:-}" ]]; then
     return 1
   fi
-  if dpkg --list 2>/dev/null | grep --quiet "^i.*${1}.*"; then
+  local package_name
+  # shellcheck disable=SC2001
+  package_name=$(echo "${1}" | sed 's/=.*//')
+  if dpkg --list 2>/dev/null | grep --quiet "^i.*${package_name}.*"; then
     return 0
   else
     return 1
@@ -640,6 +653,12 @@ function __eubnt_install_updates_utils() {
 
 # Better random number generator from ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
 # Virtual memory tweaks from adrianmmiller
+function __eubnt_system_tweaks() {
+  __eubnt_install_package "haveged"
+  __eubnt_run_command "sysctl vm.swappiness=10"
+  __eubnt_run_command "sysctl vm.vfs_cache_pressure=50"
+}
+
 function __eubnt_install_java() {
   if [[ $__install_webupd8_java || $__install_java ]]; then
     __eubnt_show_header "Installing Java...\\n"
@@ -658,9 +677,6 @@ function __eubnt_install_java() {
     fi
     __eubnt_install_package "jsvc"
     __eubnt_install_package "libcommons-daemon-java"
-    __eubnt_install_package "haveged"
-    __eubnt_run_command "sysctl vm.swappiness=10"
-    __eubnt_run_command "sysctl vm.vfs_cache_pressure=50"
   fi
 }
 
@@ -677,9 +693,7 @@ function __eubnt_install_mongo()
 {
   if [[ $__is_64 && $__install_mongo ]]; then
     __eubnt_show_header "Installing MongoDB...\\n"
-    if ! dpkg --list "mongodb-org-server" 2>/dev/null | grep "^i" --quiet &>/dev/null; then
-      __eubnt_install_package "mongodb-org"
-    fi
+    __eubnt_install_package "mongodb-org=3.4.*"
   fi
 }
 
@@ -745,6 +759,7 @@ function __eubnt_install_unifi()
   for version in "${!unifi_versions_to_install[@]}"; do
     __eubnt_install_unifi_version "${unifi_versions_to_install[$version]}"
   done
+  __eubnt_run_command "service unifi start"
 }
 
 # TODO: Add API call to make a backup
@@ -977,19 +992,9 @@ function __eubnt_setup_ssh_server() {
 }
 
 function __eubnt_setup_ufw() {
-  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
-  echo
-  if [[ ! $(dpkg --list "ufw" | grep "^i") || ( $(command -v ufw) && $(ufw status | grep "inactive") ) ]]; then
-    if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
-      return 0
-    fi
-  fi
-  __eubnt_install_package "ufw"
+  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)...\\n"
   local unifi_system_properties unifi_http_port unifi_https_port unifi_portal_http_port unifi_portal_https_port unifi_throughput_port unifi_stun_port ssh_port
   unifi_system_properties="${__unifi_data_dir}/system.properties"
-  if [[ -f "${__sshd_config}" ]]; then
-    ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
-  fi
   if [[ -f "${unifi_system_properties}" ]]; then
     unifi_http_port=$(grep "^unifi.http.port" "${unifi_system_properties}" | sed 's/.*=//g')
     if [[ ! $unifi_http_port ]]; then
@@ -1015,6 +1020,17 @@ function __eubnt_setup_ufw() {
     if [[ ! $unifi_stun_port ]]; then
       unifi_stun_port="3478"
     fi
+  fi
+  if [[ ! $(dpkg --list "ufw" | grep "^i") || ( $(command -v ufw) && $(ufw status | grep "inactive") ) ]]; then
+    if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
+      return 0
+    fi
+  fi
+  __eubnt_install_package "ufw"
+  if [[ -f "${__sshd_config}" ]]; then
+    ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+  fi
+  if [[ -n "${unifi_http_port:-}" && -n "${unifi_https_port:-}" && -n "${unifi_portal_http_port:-}" && -n "${unifi_portal_https_port:-}" && -n "${unifi_throughput_port:-}" && -n "${unifi_stun_port:-}" ]]; then
     tee "/etc/ufw/applications.d/unifi" &>/dev/null <<EOF
 [unifi]
 title=UniFi Ports
@@ -1131,7 +1147,7 @@ function __eubnt_check_system() {
   else
     __eubnt_show_error "This script is for Debian or Ubuntu\\nYou appear to have: ${__os_all_info}\\n"
   fi
-  if [[ ! $os_version_supported ]]; then
+  if [[ -z "${os_version_supported:-}" ]]; then
     __eubnt_show_warning "${__os_name} ${__os_version} is not officially supported\\n"
     __eubnt_question_prompt
     # shellcheck disable=SC2001
@@ -1143,7 +1159,6 @@ function __eubnt_check_system() {
       __os_version_name="bionic"
       __os_version_name_ubuntu_equivalent="bionic"
     fi
-    os_version_supported=true
   fi
   if [[ -z "${__os_version}" || ( ! $__is_ubuntu && ! $__is_debian ) ]]; then
     __eubnt_show_error "Unable to detect system information\\n"
@@ -1307,8 +1322,6 @@ __eubnt_install_fixes
 __eubnt_purge_mongo
 __eubnt_setup_sources
 __eubnt_install_updates_utils
-__eubnt_install_java
-__eubnt_install_mongo
 if [[ -f /var/run/reboot-required ]]; then
   echo
   __eubnt_show_warning "A reboot is recommended.\\nRun this script again after reboot.\\n"
@@ -1323,17 +1336,12 @@ if [[ -f /var/run/reboot-required ]]; then
     exit 0
   fi
 fi
+__eubnt_system_tweaks
+__eubnt_install_java
+__eubnt_install_mongo
 __eubnt_install_unifi
 __eubnt_setup_ssh_server
 __eubnt_setup_certbot
 __eubnt_setup_ufw
 __eubnt_show_success "\\nDone!\\n"
-if [[ $__unifi_https_port ]]; then
-  if [[ $__unifi_domain_name ]]; then
-    controller_address="${__unifi_domain_name}"
-  else
-    controller_address="${__machine_ip_address}"
-  fi
-  __eubnt_show_notice "\\nController URL: https://${controller_address}:${__unifi_https_port}/manage/\\n"
-fi
-__eubnt_question_prompt "Are you ready to exit?"
+sleep 3
