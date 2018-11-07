@@ -1119,7 +1119,9 @@ function __eubnt_check_system() {
     __is_64=true
     os_bit="64-bit"
   else
-    __eubnt_show_error "${__architecture} is not supported"
+    __eubnt_show_warning "Architecture ${__architecture} is not officially supported\\n"
+    __eubnt_question_prompt
+    os_bit=" "
   fi
   if [[ "${__os_name}" = "Ubuntu" ]]; then
     __is_ubuntu=true
@@ -1134,7 +1136,7 @@ function __eubnt_check_system() {
         break
       fi
     done
-  elif [[ "${__os_name}" = "Debian" ]]; then
+  elif [[ "${__os_name}" = "Debian" || "${__os_name}" = "Raspbian" ]]; then
     __is_debian=true
     os_version_recommended_display="9.x Stretch"
     os_version_recommended="stretch"
@@ -1148,7 +1150,7 @@ function __eubnt_check_system() {
       fi
     done
   else
-    __eubnt_show_error "This script is for Debian or Ubuntu\\nYou appear to have: ${__os_all_info}\\n"
+    __eubnt_show_error "This script is for Ubuntu, Debian or Raspbian\\nYou appear to have: ${__os_all_info}\\n"
   fi
   if [[ -z "${os_version_supported:-}" ]]; then
     __eubnt_show_warning "${__os_name} ${__os_version} is not officially supported\\n"
