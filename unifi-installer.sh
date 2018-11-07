@@ -188,7 +188,7 @@ function __eubnt_cleanup_before_exit() {
     fi
   fi
   if [[ -d "${__script_log_dir}" && -f "${__script_log}" ]]; then
-    log_files_to_delete=$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>6')
+    log_files_to_delete=$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>5')
     if [[ -n "${log_files_to_delete}" ]]; then
       echo "${log_files_to_delete}" | xargs --max-lines=1 rm
     fi
