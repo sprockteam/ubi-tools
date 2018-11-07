@@ -7,7 +7,7 @@ A collection of tools to make managing UBNT software easier!
 * End-users who want an easy way to install UBNT software.
 
 ## UniFi Installer
-This script guides you, using the wisdom of the UBNT community, through installing and upgrading the UniFi Controller software from UBNT, along with it's dependencies. In addition it will install basic software such as OpenSSH and UFW and configure them to secure access to your controller. Let's Encrypt setup for trouble-free SSL connections to your controller is also a built-in option with this script.
+This script guides you, using the wisdom of the UBNT community, through installing and upgrading the UniFi Controller software from UBNT, along with it's dependencies. In addition it will install basic software such as OpenSSH and UFW and configure them to secure access to your controller. Let's Encrypt setup for trouble-free SSL connections to your controller is also a built-in option with this script. Read more about this script in [this Ubiquiti Networks Community post](https://community.ubnt.com/t5/UniFi-Wireless/Easy-UBNT-UniFi-Installer-Setup-and-Secure-Your-Controller/td-p/2524035).
 
 ### How to Begin
 Download the script then execute the script using bash. Be sure to use `sudo` if not logged in as root.
