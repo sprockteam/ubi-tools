@@ -125,6 +125,7 @@ __is_64=
 __is_ubuntu=
 __is_debian=
 __is_unifi_installed=
+__is_user_sudo=
 __setup_source_java=
 __setup_source_mongo=
 __purge_mongo=
@@ -796,8 +797,8 @@ function __eubnt_install_unifi()
   fi
   if [[ $__unifi_version_installed ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
-      if [[ "${unifi_historical_versions[$step]:2:1}" -ge "${__unifi_version_installed:2:1}" && "${unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]
-      then
+      __eubnt_get_latest_unifi_version "${unifi_historical_versions[$step]}" "latest_unifi_version"
+      if [[ (("${unifi_historical_versions[$step]:2:1}" -eq "${__unifi_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_version_installed}") || "${unifi_historical_versions[$step]:2:1}" -gt "${__unifi_version_installed:2:1}") && "${unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]; then
         unifi_versions_to_install+=("${unifi_historical_versions[$step]}")
      fi
     done
@@ -1034,6 +1035,9 @@ function __eubnt_setup_ssh_server() {
       #['TCPKeepAlive yes']='Enable TCP keep alive (optional)?'
     )
     for recommended_setting in "${!ssh_changes[@]}"; do
+      if [[ "${recommended_setting}" = "PermitRootLogin no" && ! $__is_user_sudo ]]; then
+        continue
+      fi
       if ! grep --quiet "^${recommended_setting}" "${__sshd_config}"; then
         setting_name=$(echo "${recommended_setting}" | awk '{print $1}')
         echo
@@ -1285,6 +1289,9 @@ function __eubnt_check_system() {
     dpkg-reconfigure tzdata
     __eubnt_show_success "Updated time is $(date)\\n"
     sleep 3
+  fi
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    __is_user_sudo=true
   fi
   if [[ $(command -v java) ]]; then
     local java_version_installed=""
