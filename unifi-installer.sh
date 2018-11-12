@@ -139,7 +139,6 @@ __quick_mode=
 __verbose_output=
 __script_debug=
 __restart_ssh_server=
-__restart_unifi=
 __run_autoremove=
 __reboot_system=
 
@@ -179,9 +178,6 @@ function __eubnt_cleanup_before_exit() {
     __eubnt_run_command "apt-get clean --yes"
     __eubnt_run_command "apt-get autoremove --yes"
   fi
-  if [[ $__restart_unifi ]]; then
-    __eubnt_run_command "service unifi restart"
-  fi  
   if [[ -f "/lib/systemd/system/unifi.service" && ! $__reboot_system ]]; then
     __eubnt_show_header "Collecting UniFi Controller info..."
     local controller_status
@@ -831,7 +827,6 @@ function __eubnt_install_unifi_version()
     if __eubnt_question_prompt "Do you want to reinstall?" "return" "n"; then
       echo "unifi unifi/has_backup boolean true" | debconf-set-selections
       apt-get install --reinstall --yes unifi
-      __restart_unifi=
     fi
     return 0
   fi
@@ -843,7 +838,6 @@ function __eubnt_install_unifi_version()
     echo "unifi unifi/has_backup boolean true" | debconf-set-selections
     apt-get install --yes unifi
     __unifi_version_installed="${unifi_updated_version}"
-    __restart_unifi=
     tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
     do
       if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
@@ -883,13 +877,17 @@ function __eubnt_setup_certbot() {
   days_to_renewal=0
   if certbot certificates --domain "${domain_name:-}" | grep --quiet "Domains: "; then
     __eubnt_run_command "certbot certificates --domain ${domain_name}" "foreground"
-    if __eubnt_question_prompt "Do you want to use the existing Let's Encrypt certificate?" "return"; then
-      days_to_renewal=$(certbot certificates --domain "${domain_name}" | grep --only-matching --max-count=1 "VALID: .*" | awk '{print $2}')
-      skip_certbot_questions=true
-    fi
+    __eubnt_show_notice "\\nLet's Encrypt has been setup previously\\n"
+    days_to_renewal=$(certbot certificates --domain "${domain_name}" | grep --only-matching --max-count=1 "VALID: .*" | awk '{print $2}')
+    skip_certbot_questions=true
   fi
   if [[ -z "${skip_certbot_questions:-}" ]]; then
     __eubnt_get_user_input "\\nEmail address for renewal notifications (optional): " "email_address" "optional"
+  fi
+  echo
+  __eubnt_show_warning "Let's Encrypt will verify your domain using HTTP (TCP port 80). This\\nscript will automatically allow HTTP through the firewall on this machine only.\\nPlease make sure firewalls external to this machine are set to allow HTTP.\\n"
+  if ! __eubnt_question_prompt "" "return"; then
+    return 0
   fi
   if [[ ! "${__machine_ip_address}" =~ ^(?:10|127|172\.(?:1[6-9]|2[0-9]|3[0-1])|192\.168)\..* ]]; then
     resolved_domain_name=$(dig +short "${domain_name}")
@@ -906,14 +904,16 @@ function __eubnt_setup_certbot() {
     email_option="--register-unsafely-without-email"
   fi
   if [[ -n "${domain_name:-}" ]]; then
+    __unifi_domain_name="${domain_name}"
+    __eubnt_echo_and_log "unifi.https.sslEnabledProtocols=TLSv1.2" "${__unifi_system_properties}" "append"
     local letsencrypt_scripts_dir=$(mkdir --parents "${__eubnt_dir}/letsencrypt" && echo "${__eubnt_dir}/letsencrypt")
     local pre_hook_script="${letsencrypt_scripts_dir}/pre-hook_${domain_name}.sh"
     local post_hook_script="${letsencrypt_scripts_dir}/post-hook_${domain_name}.sh"
-    local letscript_live_dir="${__letsencrypt_dir}/live/${domain_name}"
-    local letscript_renewal_dir="${__letsencrypt_dir}/renewal"
-    local letscript_renewal_conf="${letscript_renewal_dir}/${domain_name}.conf"
-    local letsencrypt_privkey="${letscript_live_dir}/privkey.pem"
-    local letsencrypt_fullchain="${letscript_live_dir}/fullchain.pem"
+    local letsencrypt_live_dir="${__letsencrypt_dir}/live/${domain_name}"
+    local letsencrypt_renewal_dir="${__letsencrypt_dir}/renewal"
+    local letsencrypt_renewal_conf="${letsencrypt_renewal_dir}/${domain_name}.conf"
+    local letsencrypt_privkey="${letsencrypt_live_dir}/privkey.pem"
+    local letsencrypt_fullchain="${letsencrypt_live_dir}/fullchain.pem"
     tee "${pre_hook_script}" &>/dev/null <<EOF
 #!/usr/bin/env bash
 http_process_file="${letsencrypt_scripts_dir}/http_process"
@@ -943,10 +943,11 @@ fi
 if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
   if ! md5sum -c ${letsencrypt_fullchain}.md5 &>/dev/null; then
     md5sum ${letsencrypt_fullchain} >${letsencrypt_fullchain}.md5
-    cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.$(date +%s) &>/dev/null
-    openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letscript_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
+    cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.\$(date +%s) &>/dev/null
+    openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letsencrypt_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
     keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
-    keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letscript_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
+    keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letsencrypt_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
+    echo "unifi.https.sslEnabledProtocols=TLSv1.2" | tee -a "${__unifi_system_properties}"
     service unifi restart &>/dev/null
   fi
 fi
@@ -970,16 +971,15 @@ EOF
     # shellcheck disable=SC2086
     if certbot certonly --standalone --agree-tos --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then
       __eubnt_show_success "\\nCertbot succeeded for domain name: ${domain_name}"
-      __unifi_domain_name="${domain_name}"
       sleep 5
     else
       echo
       __eubnt_show_warning "Certbot failed for domain name: ${domain_name}"
       sleep 10
     fi
-    if [[ -f "${letscript_renewal_conf}" ]]; then
-      sed -i "s|^pre_hook.*$|pre_hook = ${pre_hook_script}|" "${letscript_renewal_conf}"
-      sed -i "s|^post_hook.*$|post_hook = ${post_hook_script}|" "${letscript_renewal_conf}"
+    if [[ -f "${letsencrypt_renewal_conf}" ]]; then
+      sed -i "s|^pre_hook.*$|pre_hook = ${pre_hook_script}|" "${letsencrypt_renewal_conf}"
+      sed -i "s|^post_hook.*$|post_hook = ${post_hook_script}|" "${letsencrypt_renewal_conf}"
       if crontab -l | grep --quiet "^[^#]"; then
         local found_file crontab_file
         declare -a files_in_crontab
@@ -1260,7 +1260,7 @@ function __eubnt_check_system() {
       esac
     done
   else
-    __machine_ip_address=$(hostname -I)
+    __machine_ip_address="${all_ip_addresses[0]}"
   fi
   __eubnt_show_text "Machine IP address to use is ${__colors_bold_text}${__machine_ip_address}${__colors_default}\\n"
   if [[ $(echo "${__nameservers}" | awk '{print $2}') ]]; then
