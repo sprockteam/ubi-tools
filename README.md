@@ -12,7 +12,7 @@ This script guides you, using the wisdom of the UBNT community, through installi
 ### How to Begin
 Download the script then execute the script using bash. Be sure to use `sudo` if not logged in as root.
 ```console
-wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/master/unifi-installer.sh -O unifi-installer.sh
+wget https://github.com/sprockteam/easy-ubnt/raw/master/unifi-installer.sh -O unifi-installer.sh
 sudo bash unifi-installer.sh
 ```
 
