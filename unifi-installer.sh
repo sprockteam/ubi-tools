@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.5.5"
+__script_version="v0.5.6"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
@@ -412,6 +412,26 @@ function __eubnt_get_latest_unifi_version() {
     else
       local unifi_version_short=$(echo "${unifi_version_full}" | sed 's/-.*//')
       eval "${2}=\"${unifi_version_short}\""
+    fi
+  fi
+}
+
+# Try to get the release notes for the given UniFi SDN version
+# $1: The full version number to check (i.e. "5.9.29")
+# $2: The variable to assign the filename with the release notes
+function __eubnt_get_unifi_release_notes() {
+  if [[ -n "${1:-}" && -n "${2:-}" ]]; then
+    local version="${1}"
+    local ubnt_update_api="https://fw-update.ubnt.com/api/firmware"
+    local unifi_version_release_notes_url=$(wget --quiet --output-document - "${ubnt_update_api}?filter=eq~~product~~unifi-controller&filter=eq~~platform~~document&filter=eq~~version_major~~${version:0:1}&filter=eq~~version_minor~~${version:2:1}&filter=eq~~version_patch~~${version:4:2}" | grep --max-count=1 "changelog/unifi-controller" | sed 's|.*"href": "||' | sed 's|"||')
+    local release_notes_file=$(mktemp)
+    if wget --quiet --output-document - "${unifi_version_release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file}"; then
+      if [[ -e "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
+        eval "${2}=\"${release_notes_file}\""
+        return 0
+      fi
+    else
+      return 1
     fi
   fi
 }
@@ -828,7 +848,7 @@ function __eubnt_install_unifi()
   local selected_unifi_version=
   local latest_unifi_version=
   declare -a unifi_supported_versions=(5.6 5.8 5.9)
-  declare -a unifi_historical_versions=(5.2 5.3 5.4 5.5 5.6 5.8 5.9)
+  declare -a unifi_historical_versions=(5.4 5.5 5.6 5.8 5.9)
   declare -a unifi_versions_to_install=()
   declare -a unifi_versions_to_select=()
   if [[ $__unifi_version_installed ]]; then
@@ -919,7 +939,14 @@ function __eubnt_install_unifi_version()
   if [[ $__unifi_version_installed ]]; then
     __eubnt_show_warning "Make sure you have a backup!\\n"
   fi
+  local release_notes=
+  if __eubnt_get_unifi_release_notes "${unifi_updated_version}" "release_notes"; then
+    if __eubnt_question_prompt "Do you want to view the release notes?" "return" "n"; then
+      more "${release_notes}"
+    fi
+  fi
   if __eubnt_question_prompt "" "return"; then
+    __eubnt_run_command "service unifi restart"
     echo "unifi unifi/has_backup boolean true" | debconf-set-selections
     DEBIAN_FRONTEND=noninteractive apt-get install --yes unifi
     __unifi_version_installed="${unifi_updated_version}"
@@ -1597,6 +1624,9 @@ function __eubnt_check_system() {
     __eubnt_show_text "UniFi SDN does not appear to be installed yet\\n"
   fi
 }
+
+### Tests
+##############################################################################
 
 ### Execution of script
 ##############################################################################
