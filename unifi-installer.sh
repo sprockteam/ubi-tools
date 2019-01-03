@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.5.6"
+__script_version="v0.5.7"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
@@ -171,7 +171,7 @@ function __eubnt_cleanup_before_exit() {
   if [[ -n "${__restart_ssh_server:-}" ]]; then
     __eubnt_run_command "service ssh restart"
   fi
-  if [[ $__unifi_version_installed ]]; then
+  if [[ -n "${__unifi_version_installed:-}" ]]; then
     __unifi_update_available=$(apt-cache policy "unifi" | grep "Candidate" | awk '{print $2}' | sed 's/-.*//g')
     if [[ "${__unifi_update_available:0:3}" != "${__unifi_version_installed:0:3}" ]]; then
       if __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list"; then
@@ -684,7 +684,7 @@ function __eubnt_setup_sources() {
           __eubnt_add_source "http://ftp.debian.org/debian jessie-backports main" "jessie-backports.list" "ftp\\.debian\\.org.*jessie-backports.*main" && do_apt_update=true
         fi
       fi
-      if [[ $mongo_repo_url ]]; then
+      if [[ -n "${mongo_repo_url:-}" ]]; then
         if __eubnt_add_source "${mongo_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
           do_apt_update=true
         fi
@@ -803,14 +803,14 @@ function __eubnt_system_tweaks() {
 # Install OpenJDK Java 8 if available from distribution sources
 # Install WebUpd8 Java if OpenJDK is not available from the distribution
 function __eubnt_install_java() {
-  if [[ $__install_webupd8_java || $__install_java ]]; then
+  if [[ -n "${__install_webupd8_java:-}" || -n "${__install_java:-}" ]]; then
     __eubnt_show_header "Installing Java...\\n"
     if [[ -n "${__install_webupd8_java:-}" ]]; then
       __eubnt_install_package "oracle-java8-installer"
       __eubnt_install_package "oracle-java8-set-default"
     else
       local target_release=
-      if [[ "${__os_version_name}" = "jessie" ]]; then
+      if [[ "${__os_version_name:-}" = "jessie" ]]; then
         target_release="${__os_version_name}-backports"
       fi
       __eubnt_install_package "ca-certificates-java" "${target_release:-}"
@@ -851,20 +851,20 @@ function __eubnt_install_unifi()
   declare -a unifi_historical_versions=(5.4 5.5 5.6 5.8 5.9)
   declare -a unifi_versions_to_install=()
   declare -a unifi_versions_to_select=()
-  if [[ $__unifi_version_installed ]]; then
+  if [[ -n "${__unifi_version_installed:-}" ]]; then
     __eubnt_show_notice "Version ${__unifi_version_installed} is currently installed\\n"
   fi
-  if [[ "${__quick_mode:-}" ]]; then
-    if [[ $__unifi_version_installed ]]; then
+  if [[ -n "${__quick_mode:-}" ]]; then
+    if [[ -n "${__unifi_version_installed:-}" ]]; then
       selected_unifi_version="${__unifi_version_installed:0:3}"
     else
       selected_unifi_version="${__unifi_version_stable}"
     fi
   else
     for version in "${!unifi_supported_versions[@]}"; do
-      if [[ $__unifi_version_installed ]]; then
+      if [[ -n "${__unifi_version_installed:-}" ]]; then
         if [[ "${unifi_supported_versions[$version]:0:3}" = "${__unifi_version_installed:0:3}" ]]; then
-          if [[ $__unifi_update_available ]]; then
+          if [[ -n "${__unifi_update_available:-}" ]]; then
             unifi_versions_to_select+=("${__unifi_update_available}")
           else
             unifi_versions_to_select+=("${__unifi_version_installed}")
@@ -936,7 +936,7 @@ function __eubnt_install_unifi_version()
     return 0
   fi
   __eubnt_show_header "Installing UniFi SDN version ${unifi_updated_version}...\\n"
-  if [[ $__unifi_version_installed ]]; then
+  if [[ -n "${__unifi_version_installed:-}" ]]; then
     __eubnt_show_warning "Make sure you have a backup!\\n"
   fi
   local release_notes=
@@ -971,7 +971,13 @@ function __eubnt_setup_certbot() {
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
     return 0
   fi
-  local source_backports skip_certbot_questions domain_name email_address resolved_domain_name email_option days_to_renewal
+  local source_backports=
+  local skip_certbot_questions=
+  local domain_name=
+  local email_address=
+  local resolved_domain_name=
+  local email_option=
+  local days_to_renewal=
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
     if [[ "${__os_version_name}" = "jessie" ]]; then
@@ -1051,7 +1057,6 @@ function __eubnt_setup_certbot() {
     email_option="--register-unsafely-without-email"
   fi
   if [[ -n "${domain_name:-}" ]]; then
-    __eubnt_echo_and_log "unifi.https.sslEnabledProtocols=TLSv1.2" "${__unifi_system_properties}" "append"
     local letsencrypt_scripts_dir=$(mkdir --parents "${__eubnt_dir}/letsencrypt" && echo "${__eubnt_dir}/letsencrypt")
     local pre_hook_script="${letsencrypt_scripts_dir}/pre-hook_${domain_name}.sh"
     local post_hook_script="${letsencrypt_scripts_dir}/post-hook_${domain_name}.sh"
@@ -1093,7 +1098,8 @@ if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
     openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letsencrypt_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
     keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
     keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letsencrypt_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
-    echo "unifi.https.sslEnabledProtocols=TLSv1.2" | tee -a "${__unifi_system_properties}"
+    echo "unifi.https.ciphers=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_EMPTY_RENEGOTIATION_INFO_SCSVF" | tee -a "${__unifi_system_properties}"
+    echo "unifi.https.sslEnabledProtocols=+TLSv1.1,+TLSv1.2,+SSLv2Hello" | tee -a "${__unifi_system_properties}"
     service unifi restart &>/dev/null
   fi
 fi
@@ -1107,7 +1113,7 @@ EOF
         force_renewal="--force-renewal"
       fi
     fi
-    if [[ $__script_debug ]]; then
+    if [[ -n "${__script_debug:-}" ]]; then
       run_mode="--dry-run"
     else
       if __eubnt_question_prompt "\\nDo you want to do a dry run?" "return" "n"; then
@@ -1355,7 +1361,12 @@ function __eubnt_setup_swap_file() {
 # Perform various system checks, display system information and warnings about potential issues
 # Check for currently installed versions of Java, MongoDB and UniFi SDN
 function __eubnt_check_system() {
-  local os_version_name_display os_version_supported os_version_recommended_display os_version_recommended os_bit have_space_for_swap
+  local os_version_name_display=
+  local os_version_supported=
+  local os_version_recommended_display=
+  local os_version_recommended=
+  local os_bit=
+  local have_space_for_swap=
   declare -a ubuntu_supported_versions=("precise" "trusty" "xenial" "bionic")
   declare -a debian_supported_versions=("wheezy" "jessie" "stretch")
   __eubnt_show_header "Checking system...\\n"
@@ -1381,7 +1392,7 @@ function __eubnt_check_system() {
       os_bit="Unknown"
     fi
   fi
-  if [[ "${__os_name}" = "Ubuntu" ]]; then
+  if [[ "${__os_name:-}" = "Ubuntu" ]]; then
     __is_ubuntu=true
     os_version_recommended_display="16.04 Xenial"
     os_version_recommended="xenial"
@@ -1393,7 +1404,7 @@ function __eubnt_check_system() {
         break
       fi
     done
-  elif [[ "${__os_name}" = "Debian" || "${__os_name}" = "Raspbian" ]]; then
+  elif [[ "${__os_name:-}" = "Debian" || "${__os_name:-}" = "Raspbian" ]]; then
     __is_debian=true
     os_version_recommended_display="9.x Stretch"
     os_version_recommended="stretch"
@@ -1413,7 +1424,7 @@ function __eubnt_check_system() {
     __eubnt_question_prompt
     __is_experimental=true
     os_version_name_display=$(echo "${__os_version_name}" | sed 's/./\u&/')
-    if [[ $__is_debian ]]; then
+    if [[ -n "${__is_debian:-}" ]]; then
       __os_version_name="stretch"
       __os_version_name_ubuntu_equivalent="xenial"
     else
@@ -1421,7 +1432,7 @@ function __eubnt_check_system() {
       __os_version_name_ubuntu_equivalent="bionic"
     fi
   fi
-  if [[ -z "${__os_version}" || ( -z "${__is_ubuntu:-}" && -z "${__is_debian:-}" ) ]]; then
+  if [[ -z "${__os_version:-}" || ( -z "${__is_ubuntu:-}" && -z "${__is_debian:-}" ) ]]; then
     __eubnt_show_error "Unable to detect system information\\n"
   fi
   local show_disk_free_space=
@@ -1449,7 +1460,7 @@ function __eubnt_check_system() {
     fi
   fi
   __eubnt_show_text "Operating system is ${__colors_bold_text}${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
-  if [[ "${__os_version_name}" != "${os_version_recommended}" || "${os_bit}" != "${__os_bit_recommended}" ]]; then
+  if [[ ( -n "${__is_ubuntu:-}" || -n "${__is_debian:-}" ) && ( "${__os_version_name:-}" != "${os_version_recommended:-}" || "${os_bit:-}" != "${__os_bit_recommended}" ) ]]; then
     __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${__os_bit_recommended}\\n"
   fi
   declare -a all_ip_addresses=()
