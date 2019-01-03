@@ -1459,8 +1459,8 @@ function __eubnt_check_system() {
       __eubnt_setup_swap_file
     fi
   fi
-  __eubnt_show_text "Operating system is ${__colors_bold_text}${__os_name} ${__os_version} ${os_version_name_display} ${os_bit}\\n"
-  if [[ ( -n "${__is_ubuntu:-}" || -n "${__is_debian:-}" ) && ( "${__os_version_name:-}" != "${os_version_recommended:-}" || "${os_bit:-}" != "${__os_bit_recommended}" ) ]]; then
+  __eubnt_show_text "Operating system is ${__colors_bold_text}${__os_name} ${__os_version} ${os_version_name_display:-} ${os_bit:-}\\n"
+  if [[ ( -n "${__is_ubuntu:-}" || -n "${__is_debian:-}" ) && ( "${__os_version_name:-}" != "${os_version_recommended:-}" || "${os_bit:-}" != "${__os_bit_recommended:-}" ) ]]; then
     __eubnt_show_warning "UBNT recommends ${__os_name} ${os_version_recommended_display} ${__os_bit_recommended}\\n"
   fi
   declare -a all_ip_addresses=()
