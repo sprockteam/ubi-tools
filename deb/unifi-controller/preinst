@@ -5,7 +5,6 @@
 if [ -f /var/lib/unifi/db/version ]; then
     echo "Previous setting (UniFi $(cat /var/lib/unifi/db/version)) is found."
 
-    db_fset unifi/has_backup seen false
     db_input critical unifi/has_backup || true
     db_go
 

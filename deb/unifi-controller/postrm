@@ -43,11 +43,19 @@ case "$1" in
     purge)
         update-rc.d -f unifi remove
         systemd_purge
-        [ ! -d ${DATADIR} ] || rm -rf ${DATADIR}
+        . /usr/share/debconf/confmodule
+        if [ -d ${DATADIR} ]; then
+          db_input critical unifi/purge_data || true
+          db_go
+
+          db_get unifi/purge_data
+          if [ "$RET" = "true" ]; then
+            rm -rf ${DATADIR}
+          fi
+        fi
         [ ! -d ${LOGDIR} ] || rm -rf ${LOGDIR}
         [ ! -d ${RUNDIR} ] || rm -rf ${RUNDIR}
 
-        . /usr/share/debconf/confmodule
         db_purge
 
         deluser ${UNIFI_USER:-unifi}
@@ -60,5 +68,3 @@ case "$1" in
 esac
 
 exit 0
-
-
