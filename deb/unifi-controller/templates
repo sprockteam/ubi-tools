@@ -1,0 +1,9 @@
+Template: unifi/has_backup
+Type: boolean
+Description: Do you have a backup?
+ It is recommended that you create a backup before installing a new version.
+
+Template: unifi/err_no_backup
+Type: error
+Description: The installation will be canceled.
+
