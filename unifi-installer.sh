@@ -7,8 +7,8 @@
 # your server according to best practices.
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
-# Copyright (c) 2018 SprockTech, LLC and contributors
-__script_version="v0.5.7"
+# Copyright (c) 2018-2019 SprockTech, LLC and contributors
+__script_version="v0.5.8"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
@@ -420,20 +420,27 @@ function __eubnt_get_latest_unifi_version() {
 # $1: The full version number to check (i.e. "5.9.29")
 # $2: The variable to assign the filename with the release notes
 function __eubnt_get_unifi_release_notes() {
-  if [[ -n "${1:-}" && -n "${2:-}" ]]; then
-    local version="${1}"
-    local ubnt_update_api="https://fw-update.ubnt.com/api/firmware"
-    local unifi_version_release_notes_url=$(wget --quiet --output-document - "${ubnt_update_api}?filter=eq~~product~~unifi-controller&filter=eq~~platform~~document&filter=eq~~version_major~~${version:0:1}&filter=eq~~version_minor~~${version:2:1}&filter=eq~~version_patch~~${version:4:2}" | grep --max-count=1 "changelog/unifi-controller" | sed 's|.*"href": "||' | sed 's|"||')
-    local release_notes_file=$(mktemp)
-    if wget --quiet --output-document - "${unifi_version_release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file}"; then
-      if [[ -e "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
-        eval "${2}=\"${release_notes_file}\""
-        return 0
-      fi
-    else
-      return 1
+  if [[ -z "${1:-}" && -z "${2:-}" ]]; then
+    __eubnt_show_warning "Invalid check for release notes at $(caller)"
+    return 1
+  fi
+  local download_url=""
+  local found_version=""
+  local version_major="&filter=eq~~version_major~~$(echo "${1}" | cut --fields 1 --delimiter '.')"
+  local version_minor="&filter=eq~~version_minor~~$(echo "${1}" | cut --fields 2 --delimiter '.')"
+  local version_patch="&filter=eq~~version_patch~~$(echo "${1}" | cut --fields 3 --delimiter '.')"
+  local ubnt_update_api="https://fw-update.ubnt.com/api/firmware"
+  local update_url="${ubnt_update_api:-}?filter=eq~~product~~unifi-controller&filter=eq~~platform~~document${version_major}${version_minor}${version_patch}&limit=1"
+  local release_notes_url="$(wget --quiet --output-document - "${update_url:-}" | grep --max-count=1 "changelog/unifi-controller" | sed 's|.*"href": "||' | sed 's|"||')"
+  local release_notes_file="$(mktemp)"
+  __eubnt_add_to_log "Trying to get release notes from: ${release_notes_url:-}"
+  if wget --quiet --output-document - "${release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file:-}"; then
+    if [[ -f "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
+      eval "${2}=\"${release_notes_file}\""
+      return 0
     fi
   fi
+  return 1
 }
 
 # A wrapper to run commands, display a nice message and handle errors gracefully
@@ -456,13 +463,15 @@ function __eubnt_run_command() {
       local found_package=
       local unknown_command="${full_command[0]}"
       __eubnt_install_package "apt-file"
-      __eubnt_run_command "apt-file update"
-      __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
-      if [[ -n "${found_package:-}" ]]; then
-        __eubnt_install_package "${found_package}"
-      else
-        __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
-        return 1
+      if [[ "${unknown_command}" != "apt-file" ]]; then
+        __eubnt_run_command "apt-file update"
+        __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
+        if [[ -n "${found_package:-}" ]]; then
+          __eubnt_install_package "${found_package}"
+        else
+          __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
+          return 1
+        fi
       fi
     fi
     if [[ "${full_command[0]}" != "echo" ]]; then
@@ -651,7 +660,7 @@ function __eubnt_setup_sources() {
     __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main" && do_apt_update=true
     __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main" && do_apt_update=true
     __eubnt_add_source "http://mirrors.kernel.org/ubuntu ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main" && do_apt_update=true
-  elif [[ -n "${__is_debian:-}" ]]; then 
+  elif [[ -n "${__is_debian:-}" ]]; then
     __eubnt_install_package "dirmngr"
     __eubnt_add_source "http://ftp.debian.org/debian ${__os_version_name}-backports main" "${__os_version_name}-backports.list" "ftp\\.debian\\.org.*${__os_version_name}-backports.*main" && do_apt_update=true
   fi
@@ -719,6 +728,12 @@ function __eubnt_install_fixes {
   __eubnt_run_command "apt-get clean --yes"
   __eubnt_run_command "rm -rf /var/lib/apt/lists/*"
   if [[ -n "${__is_ubuntu:-}" && -d /boot ]]; then
+    local configured_localhost=
+    if __eubnt_run_command "hostname --short" "return" "configured_localhost"; then
+      if ! grep --quiet "127\.0\.1\.1.*{configured_localhost}" /etc/hosts; then
+        sed -i "1s/^/127.0.1.1\t${configured_localhost}\n/" /etc/hosts
+      fi
+    fi
     if [[ $(df /boot | awk '/\/boot/{gsub("%", ""); print $5}') -gt 50 ]]; then
       declare -a files_in_boot=()
       declare -a kernel_packages=()
@@ -750,6 +765,7 @@ function __eubnt_install_fixes {
 function __eubnt_install_updates_utils() {
   __eubnt_show_header "Installing utilities and updates...\\n"
   __eubnt_install_package "software-properties-common"
+  __eubnt_install_package "apt-transport-https"
   __eubnt_install_package "unattended-upgrades"
   __eubnt_install_package "sudo"
   __eubnt_install_package "curl"
@@ -767,8 +783,10 @@ function __eubnt_install_updates_utils() {
     __eubnt_run_command "apt-mark hold ${__hold_unifi}"
   fi
   echo
-  if __eubnt_question_prompt "Do you want to upgrade all currently installed packages?" "return"; then
-    __eubnt_run_command "apt-get dist-upgrade --yes"
+  if apt-get dist-upgrade --simulate | grep --quiet "^Inst"; then
+    if __eubnt_question_prompt "Do you want to upgrade all currently installed packages?" "return"; then
+      __eubnt_run_command "apt-get dist-upgrade --yes"
+    fi
   fi
   if [[ -n "${__hold_java:-}" ]]; then
     __eubnt_run_command "apt-mark unhold ${__hold_java}"
@@ -938,17 +956,20 @@ function __eubnt_install_unifi_version()
   __eubnt_show_header "Installing UniFi SDN version ${unifi_updated_version}...\\n"
   if [[ -n "${__unifi_version_installed:-}" ]]; then
     __eubnt_show_warning "Make sure you have a backup!\\n"
+    __eubnt_question_prompt
   fi
   local release_notes=
   if __eubnt_get_unifi_release_notes "${unifi_updated_version}" "release_notes"; then
     if __eubnt_question_prompt "Do you want to view the release notes?" "return" "n"; then
       more "${release_notes}"
+      __eubnt_question_prompt
     fi
   fi
-  if __eubnt_question_prompt "" "return"; then
+  if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
-    echo "unifi unifi/has_backup boolean true" | debconf-set-selections
-    DEBIAN_FRONTEND=noninteractive apt-get install --yes unifi
+  fi
+  echo "unifi unifi/has_backup boolean true" | debconf-set-selections
+  if DEBIAN_FRONTEND=noninteractive apt-get install --yes unifi; then
     __unifi_version_installed="${unifi_updated_version}"
     tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
     do
@@ -960,8 +981,10 @@ function __eubnt_install_unifi_version()
     done
     sleep 1
   else
-    if __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"; then
-      __eubnt_run_command "apt-get update" "quiet"
+    if [[ -n "${__unifi_version_installed:-}" ]]; then
+      if __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"; then
+        __eubnt_run_command "apt-get update" "quiet"
+      fi
     fi
   fi
 }
@@ -1526,7 +1549,7 @@ function __eubnt_check_system() {
     __eubnt_run_command "service ntp stop"
     __eubnt_run_command "ntpdate 0.ubnt.pool.ntp.org"
     __eubnt_run_command "service ntp start"
-    dpkg-reconfigure tzdata
+    dpkg-reconfigure --frontend Dialog tzdata
     __eubnt_show_success "Updated time is $(date)\\n"
     sleep 3
   fi
