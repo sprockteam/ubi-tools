@@ -8,7 +8,7 @@
 # https://github.com/sprockteam/easy-ubnt
 # MIT License
 # Copyright (c) 2018-2019 SprockTech, LLC and contributors
-__script_version="v0.5.8"
+__script_version="v0.5.9"
 __script_contributors="Contributors (UBNT Community Username):
 Klint Van Tassel (SprockTech), Glenn Rietveld (AmazedMender16),
 Frank Gabriel (Frankedinven), Sam Sawyer (ssawyer), Adrian
@@ -130,6 +130,7 @@ __is_experimental=
 __is_unifi_installed=
 __setup_source_java=
 __setup_source_mongo=
+__setup_source_certbot=
 __purge_mongo=
 __hold_java=
 __hold_mongo=
@@ -701,13 +702,13 @@ function __eubnt_setup_sources() {
         __install_mongo=true
       fi
     fi
-    __eubnt_add_key "C0A52C50" # UBNT package signing key
-    if [[ -n "${__setup_certbot:-}" ]]; then
-      if [[ -n "${__is_ubuntu:-}" && "${__os_version_name:-}" != "precise" ]]; then
+    if [[ -n "${__setup_source_certbot:-}" && -n "${__is_ubuntu:-}" ]]; then
+      if [[ "${__os_version_name:-}" != "precise" ]]; then
         __eubnt_add_source "http://ppa.launchpad.net/certbot/certbot/ubuntu ${__os_version_name} main" "certbot-ubuntu-certbot-${__os_version_name}.list" "ppa\\.laundpad\\.net.*${__os_version_name}.*main" && do_apt_update=true
         __eubnt_add_key "75BCA694" # Certbot package signing key
       fi
     fi
+    __eubnt_add_key "C0A52C50" # UBNT package signing key
   fi
   if [[ -n "${do_apt_update:-}" ]]; then
     __eubnt_run_command "apt-get update"
@@ -1003,18 +1004,31 @@ function __eubnt_setup_certbot() {
   local days_to_renewal=
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
-    if [[ "${__os_version_name}" = "jessie" ]]; then
-      __eubnt_run_command "apt-get install --yes --target-release jessie-backports certbot"
-    else
-      __eubnt_install_package "certbot"
+    if [[ ! $(command -v certbot) ]]; then
+      if [[ -n "${__is_ubuntu:-}" ]]; then
+        __setup_source_certbot=true
+        __eubnt_setup_sources
+      fi
+      if [[ "${__os_version_name}" = "jessie" ]]; then
+        __eubnt_run_command "apt-get install --yes --target-release jessie-backports certbot"
+      else
+        __eubnt_install_package "certbot"
+      fi
     fi
   else
+    return 0
+  fi
+  if [[ ! $(command -v certbot) ]]; then
+    echo
+    __eubnt_show_warning "Unable to setup certbot!"
+    echo
+    sleep 3
     return 0
   fi
   domain_name=
   if __eubnt_run_command "hostname --fqdn" "return" "domain_name"; then
     echo
-    if ! __eubnt_question_prompt "Do you want to use ${domain_name}?" "return" "y"; then
+    if ! __eubnt_question_prompt "Do you want to use ${domain_name} as the domain name?" "return" "y"; then
       __eubnt_get_user_input "\\nDomain name to use for the UniFi SDN Controller: " "domain_name"
     fi
   else
@@ -1039,41 +1053,6 @@ function __eubnt_setup_certbot() {
   fi
   echo
   __eubnt_show_warning "Let's Encrypt will verify your domain using HTTP (TCP port 80). This\\nscript will automatically allow HTTP through the firewall on this machine only.\\nPlease make sure firewalls external to this machine are set to allow HTTP.\\n"
-  if __eubnt_question_prompt "Do you want to check if inbound HTTP is open to the Internet?" "return"; then
-    local enable_ufw=
-    if [[ $(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && $(ufw status | grep " active") ]]; then
-      __eubnt_run_command "ufw disable"
-      enable_ufw=true
-    fi
-    __eubnt_show_text "Checking if port probing service is available"
-    local port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-    if [[ -n "${port_probe_url:-}" ]]; then
-      local port_to_probe="80"
-      __eubnt_show_text "Checking port ${port_to_probe}"
-      if ! wget -q -O- "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-        echo
-        __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
-        if __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
-          if ! wget -q -O- "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-            echo
-            __eubnt_show_warning "Port ${port_to_probe} is still not open!\\n"
-            if ! __eubnt_question_prompt "Do you want to proceed anyway?" "return"; then
-              return 1
-            fi
-          else
-            __eubnt_show_success "\\nPort ${port_to_probe} is now open!\\n"
-          fi
-        fi
-      else
-        __eubnt_show_success "\\nPort ${port_to_probe} is open!\\n"
-      fi
-    else
-      __eubnt_show_notice "\\nPort probing service is unavailable, try again later."
-    fi
-    if [[ -n "${enable_ufw:-}" ]]; then
-      __eubnt_run_command "ufw --force enable"
-    fi
-  fi
   if [[ -n "${email_address:-}" ]]; then
     email_option="--email ${email_address}"
   else
@@ -1290,6 +1269,11 @@ EOF
   __eubnt_show_notice "\\nCurrent UFW status:\\n"
   __eubnt_run_command "ufw status" "foreground"
   echo
+  if ufw status | grep --quiet " active"; then
+    if ! __eubnt_question_prompt "Do you want to make changes to your UFW rules?" "return" "n"; then
+      return 0
+    fi
+  fi
   if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
     __eubnt_run_command "ufw --force reset"
     echo
@@ -1316,7 +1300,7 @@ EOF
               echo
               __eubnt_show_warning "Port ${port_to_probe} is still not open!\\n"
               if ! __eubnt_question_prompt "Do you want to proceed anyway?" "return"; then
-                return 1
+                return 0
               fi
             else
               __eubnt_show_success "\\nPort ${port_to_probe} is open!\\n"
@@ -1494,15 +1478,19 @@ function __eubnt_check_system() {
   #shellcheck disable=SC2207
   all_ip_addresses=($(printf "%s\\n" "${all_ip_addresses[@]}" | sort --unique))
   if [[ "${#all_ip_addresses[@]}" -gt 1 ]]; then
-    __eubnt_show_notice "Which IP address will the controller be using?\\n"
-    select ip_address in "${all_ip_addresses[@]}"; do
-      case "${ip_address}" in
-        *)
-          __machine_ip_address="${ip_address}"
-          echo
-          break;;
-      esac
-    done
+    if [[ -n "${__quick_mode:-}" && -n "${apparent_public_ip_address:-}" ]]; then
+      __machine_ip_address="${apparent_public_ip_address}"
+    else
+      __eubnt_show_notice "Which IP address will the controller be using?\\n"
+      select ip_address in "${all_ip_addresses[@]}"; do
+        case "${ip_address}" in
+          *)
+            __machine_ip_address="${ip_address}"
+            echo
+            break;;
+        esac
+      done
+    fi
   else
     __machine_ip_address="${all_ip_addresses[0]}"
   fi
