@@ -1123,7 +1123,7 @@ EOF
       fi
     fi
     # shellcheck disable=SC2086
-    if certbot certonly --standalone --agree-tos --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then
+    if certbot certonly --agree-tos --standalone --preferred-challenges http-01 --http-01-port 80 --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then
       __eubnt_show_success "\\nCertbot succeeded for domain name: ${domain_name}"
       __unifi_domain_name="${domain_name}"
       sleep 5
