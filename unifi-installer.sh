@@ -1662,6 +1662,7 @@ if [[ -n "${__accept_license:-}" ]]; then
 else
   __eubnt_question_prompt "Do you agree to the license and want to proceed?" "exit" "n"
 fi
+__eubnt_install_package "apt-transport-https"
 __eubnt_check_system
 __eubnt_question_prompt
 __eubnt_purge_mongo
