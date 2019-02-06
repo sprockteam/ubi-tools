@@ -1,0 +1,4 @@
+unifi-controller|candidate|5.10.12|https://dl.ubnt.com/unifi/5.10.12-20644d4901/unifi_sysvinit_all.deb
+unifi-controller|beta|5.10.5|https://dl.ubnt.com/unifi/5.10.5-6ba4d1bfe5/unifi_sysvinit_all.deb
+unifi-controller|stable|5.9.29|https://dl.ubnt.com/unifi/5.9.29/unifi_sysvinit_all.deb
+unifi-controller|lts|5.6.40|https://dl.ubnt.com/unifi/5.6.40/unifi_sysvinit_all.deb
