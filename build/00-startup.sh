@@ -47,6 +47,7 @@ Sam Sawyer (ssawyer)"
 # https://superuser.com/a/246841 - Add text to beginning of file
 # https://askubuntu.com/a/90219 - Purge un-unsed kernels in /boot on Ubuntu
 # https://unix.stackexchange.com/a/77738 - Parse apt-cache with madison script
+# https://unix.stackexchange.com/a/490994 - Sort array
 ###
 
 

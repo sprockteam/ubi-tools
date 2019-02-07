@@ -34,8 +34,8 @@ function __eubnt_ubnt_get_product() {
       return 1
     fi
     local update_url=
-    local download_url=""
-    local found_version=""
+    declare -a download_url=()
+    declare -a found_version=()
     local version_major=""
     local version_minor=""
     local version_patch=""
@@ -81,32 +81,32 @@ function __eubnt_ubnt_get_product() {
           wget_command+=(--header="Authorization: Bearer token:${bearer_token}")
         fi
         if [[ "${4:-}" = "url" ]]; then
-          download_url="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+          download_url=($(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href'))
         else
-          found_version="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
+          found_version=($(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g'))
         fi
       fi
     fi
-    if [[ ( -z "${download_url:-}" && "${4:-}" = "url" ) || ( -z "${found_version:-}" && "${4:-}" != "url" ) ]]; then
-      update_url="sprocket.link/ubntdl"
-      if [[ "${4:-}" = "url" ]]; then
-        download_url="$(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 4 )"
-      else
-        found_version="$(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 3 )"
-      fi
+    update_url="sprocket.link/ubntdl"
+    if [[ "${4:-}" = "url" ]]; then
+      download_url+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 4 ))
+    else
+      found_version+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 3 ))
     fi
-    if [[ -n "${download_url:-}" ]]; then
+    download_url=($(printf "%s\\n" "${download_url[@]}" | sort --unique))
+    found_version=($(printf "%s\\n" "${found_version[@]}" | sort --unique))
+    if [[ -n "${download_url[0]:-}" ]]; then
       if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${download_url}\""
+        eval "${3}=\"${download_url[0]}\""
       else
-        echo "${download_url}"
+        echo "${download_url[0]}"
       fi
       return 0
-    elif [[ -n "${found_version:-}" ]]; then
+    elif [[ -n "${found_version[0]:-}" ]]; then
       if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${found_version}\""
+        eval "${3}=\"${found_version[0]}\""
       else
-        echo "${found_version}"
+        echo "${found_version[0]}"
       fi
       return 0
     fi

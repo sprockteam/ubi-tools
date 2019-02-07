@@ -82,59 +82,30 @@ function __eubnt_is_unifi_controller_running() {
   return 1
 }
 
-# A wrapper function to get the available UniFi SDN Controller version number
-function __eubnt_unifi_controller_get_available_version() {
-  if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}"; then
-    return 1
-  fi
-}
-
-# A wrapper function to get the available UniFi SDN Controller download URL for given version
-function __eubnt_unifi_controller_get_available_download() {
-  if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}" "" "url"; then
-    return 1
-  fi
-}
-
-# A wrapper function to get the installed UniFi SDN Controller version
-__eubnt_unifi_controller_get_installed_version() {
-  __eubnt_initialize_unifi_controller_variables
-  if [[ -n "${__unifi_controller_is_installed:-}" ]]; then
-    if echo "${__unifi_controller_package_version:-}"; then
-      return 0
-    fi
-  fi
-  return 1
-}
-
 # Show install/reinstall/update options for UniFi SDN Controller
 function __eubnt_install_unifi()
 {
   __eubnt_show_header "Installing UniFi SDN Controller...\\n"
   local selected_version=""
-  local available_version_lts="$(__eubnt_unifi_controller_get_version "lts")"
-  local available_version_stable="$(__eubnt_unifi_controller_get_version "stable")"
-  local available_version_beta="$(__eubnt_unifi_controller_get_version "beta")"
-  local available_version_candidate="$(__eubnt_unifi_controller_get_version "candidate")"
+  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "lts")"
+  local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable")"
+  local available_version_beta="$(__eubnt_ubnt_get_product "unifi-controller" "beta")"
+  local available_version_candidate="$(__eubnt_ubnt_get_product "unifi-controller" "candidate")"
+  local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version:-}")"
   declare -a unifi_versions_to_install=()
   declare -a unifi_versions_to_select=()
-  __eubnt_ubnt_get_product "unifi-controller" "candidate" "candidate_unifi_version" "url"
-  __eubnt_ubnt_get_product "unifi-controller" "stable" "stable_unifi_controller_version"
-  __eubnt_ubnt_get_product "unifi-controller" "lts" "lts_unifi_controller_version"
-  __eubnt_ubnt_get_release_notes
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
     __eubnt_show_notice "Version ${__unifi_controller_package_version} is currently installed"
   fi
-  if [[ -n "${__quick_mode:-}" ]]; then
-    if [[ -n "${__unifi_version_to_install}" ]]; then
-      selected_unifi_version="${__unifi_version_to_install}"
+  if [[ -n "${__ubnt_product_version:-}" ]]; then
+    selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version}")"
     elif [[ -n "${__unifi_controller_version_installed:-}" ]]; then
-      selected_unifi_version="${__unifi_controller_version_installed:0:3}"
+      selected_version="${__unifi_controller_version_installed:0:3}"
     else
-      selected_unifi_version="${__unifi_version_stable}"
+      selected_version="${__unifi_version_stable}"
     fi
-  elif [[ -n "${__unifi_version_to_install}" ]]; then
-    selected_unifi_version="${__unifi_version_to_install}"
+  elif [[ -n "${__unifi_controller_version_to_install}" ]]; then
+    selected_version="${__unifi_controller_version_to_install}"
   else
     for version in "${!__unifi_supported_versions[@]}"; do
       if [[ -n "${__unifi_controller_version_installed:-}" ]]; then
@@ -157,12 +128,12 @@ function __eubnt_install_unifi()
     __eubnt_show_notice "Which UniFi SDN Controller version do you want to (re)install or upgrade to?\\n"
     select version in "${unifi_versions_to_select[@]}"; do
       if [[ -z "${version:-}" ]]; then
-        selected_unifi_version="${__unifi_version_stable}"
+        selected_version="${__unifi_version_stable}"
         break
       elif [[ "${version:-}" = "Cancel" ]]; then
         return 1
       else
-        selected_unifi_version="${version:0:3}"
+        selected_version="${version:0:3}"
         break
       fi
     done
@@ -170,7 +141,7 @@ function __eubnt_install_unifi()
   if [[ -n "${__unifi_controller_version_installed:-}" ]]; then
     for step in "${!__unifi_historical_versions[@]}"; do
       __eubnt_get_latest_unifi_version "${__unifi_historical_versions[$step]}" "latest_unifi_version"
-      if [[ (("${__unifi_historical_versions[$step]:2:1}" -eq "${__unifi_controller_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_controller_version_installed}") || "${__unifi_historical_versions[$step]:2:1}" -gt "${__unifi_controller_version_installed:2:1}") && "${__unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]; then
+      if [[ (("${__unifi_historical_versions[$step]:2:1}" -eq "${__unifi_controller_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_controller_version_installed}") || "${__unifi_historical_versions[$step]:2:1}" -gt "${__unifi_controller_version_installed:2:1}") && "${__unifi_historical_versions[$step]:2:1}" -le "${selected_version:2:1}" ]]; then
         unifi_versions_to_install+=("${__unifi_historical_versions[$step]}")
      fi
     done
@@ -178,7 +149,7 @@ function __eubnt_install_unifi()
       unifi_versions_to_install=("${__unifi_controller_version_installed:0:3}")
     fi
   else
-    unifi_versions_to_install=("${selected_unifi_version}")
+    unifi_versions_to_install=("${selected_version}")
   fi
   for version in "${!unifi_versions_to_install[@]}"; do
     if ! __eubnt_install_unifi_version "${unifi_versions_to_install[$version]}"; then
@@ -194,7 +165,7 @@ function __eubnt_install_unifi()
 function __eubnt_install_unifi()
 {
   __eubnt_show_header "Installing UniFi SDN Controller...\\n"
-  local selected_unifi_version=
+  local selected_version=
   local latest_unifi_version=
   declare -a unifi_supported_versions=(5.6 5.8 5.9)
   declare -a unifi_historical_versions=(5.4 5.5 5.6 5.8 5.9)
@@ -205,9 +176,9 @@ function __eubnt_install_unifi()
   fi
   if [[ -n "${__quick_mode:-}" ]]; then
     if [[ -n "${__unifi_version_installed:-}" ]]; then
-      selected_unifi_version="${__unifi_version_installed:0:3}"
+      selected_version="${__unifi_version_installed:0:3}"
     else
-      selected_unifi_version="${__unifi_version_stable}"
+      selected_version="${__unifi_version_stable}"
     fi
   else
     for version in "${!unifi_supported_versions[@]}"; do
@@ -232,13 +203,13 @@ function __eubnt_install_unifi()
     select version in "${unifi_versions_to_select[@]}"; do
       case "${version}" in
         "")
-          selected_unifi_version="${__unifi_version_stable}"
+          selected_version="${__unifi_version_stable}"
           break;;
         *)
           if [[ "${version}" = "Skip" ]]; then
             return 0
           fi
-          selected_unifi_version="${version:0:3}"
+          selected_version="${version:0:3}"
           break;;
       esac
     done
@@ -246,7 +217,7 @@ function __eubnt_install_unifi()
   if [[ -n "${__unifi_version_installed:-}" ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
       __eubnt_get_latest_unifi_version "${unifi_historical_versions[$step]}" "latest_unifi_version"
-      if [[ (("${unifi_historical_versions[$step]:2:1}" -eq "${__unifi_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_version_installed}") || "${unifi_historical_versions[$step]:2:1}" -gt "${__unifi_version_installed:2:1}") && "${unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]; then
+      if [[ (("${unifi_historical_versions[$step]:2:1}" -eq "${__unifi_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_version_installed}") || "${unifi_historical_versions[$step]:2:1}" -gt "${__unifi_version_installed:2:1}") && "${unifi_historical_versions[$step]:2:1}" -le "${selected_version:2:1}" ]]; then
         unifi_versions_to_install+=("${unifi_historical_versions[$step]}")
      fi
     done
@@ -254,7 +225,7 @@ function __eubnt_install_unifi()
       unifi_versions_to_install=("${__unifi_version_installed:0:3}")
     fi
   else
-    unifi_versions_to_install=("${selected_unifi_version}")
+    unifi_versions_to_install=("${selected_version}")
   fi
   for version in "${!unifi_versions_to_install[@]}"; do
     __eubnt_install_unifi_version "${unifi_versions_to_install[$version]}"
@@ -324,7 +295,7 @@ function __eubnt_install_unifi_version()
 function __eubnt_unifi_controller_install()
 {
   __eubnt_show_header "Installing UniFi SDN Controller...\\n"
-  local selected_unifi_version=
+  local selected_version=
   local latest_unifi_version=
   declare -a unifi_supported_versions=(5.6 5.8 5.9)
   declare -a unifi_historical_versions=(5.4 5.5 5.6 5.8 5.9)
@@ -335,9 +306,9 @@ function __eubnt_unifi_controller_install()
   fi
   if [[ -n "${__quick_mode:-}" ]]; then
     if [[ -n "${__unifi_version_installed:-}" ]]; then
-      selected_unifi_version="${__unifi_version_installed:0:3}"
+      selected_version="${__unifi_version_installed:0:3}"
     else
-      selected_unifi_version="${__unifi_version_stable}"
+      selected_version="${__unifi_version_stable}"
     fi
   else
     for version in "${!unifi_supported_versions[@]}"; do
@@ -362,13 +333,13 @@ function __eubnt_unifi_controller_install()
     select version in "${unifi_versions_to_select[@]}"; do
       case "${version}" in
         "")
-          selected_unifi_version="${__unifi_version_stable}"
+          selected_version="${__unifi_version_stable}"
           break;;
         *)
           if [[ "${version}" = "Skip" ]]; then
             return 0
           fi
-          selected_unifi_version="${version:0:3}"
+          selected_version="${version:0:3}"
           break;;
       esac
     done
@@ -376,7 +347,7 @@ function __eubnt_unifi_controller_install()
   if [[ -n "${__unifi_version_installed:-}" ]]; then
     for step in "${!unifi_historical_versions[@]}"; do
       __eubnt_get_latest_unifi_version "${unifi_historical_versions[$step]}" "latest_unifi_version"
-      if [[ (("${unifi_historical_versions[$step]:2:1}" -eq "${__unifi_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_version_installed}") || "${unifi_historical_versions[$step]:2:1}" -gt "${__unifi_version_installed:2:1}") && "${unifi_historical_versions[$step]:2:1}" -le "${selected_unifi_version:2:1}" ]]; then
+      if [[ (("${unifi_historical_versions[$step]:2:1}" -eq "${__unifi_version_installed:2:1}" && "${latest_unifi_version}" != "${__unifi_version_installed}") || "${unifi_historical_versions[$step]:2:1}" -gt "${__unifi_version_installed:2:1}") && "${unifi_historical_versions[$step]:2:1}" -le "${selected_version:2:1}" ]]; then
         unifi_versions_to_install+=("${unifi_historical_versions[$step]}")
      fi
     done
@@ -384,7 +355,7 @@ function __eubnt_unifi_controller_install()
       unifi_versions_to_install=("${__unifi_version_installed:0:3}")
     fi
   else
-    unifi_versions_to_install=("${selected_unifi_version}")
+    unifi_versions_to_install=("${selected_version}")
   fi
   for version in "${!unifi_versions_to_install[@]}"; do
     __eubnt_install_unifi_version "${unifi_versions_to_install[$version]}"
