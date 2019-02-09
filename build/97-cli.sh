@@ -1,5 +1,15 @@
-### Commandline wrapper functions
+### CLI wrapper functions
 ##############################################################################
+
+# Call the various CLI wrapper functions and exits
+function __eubnt_invoke_cli() {
+  if [[ -n "${__ubnt_product_command:-}" && -n "${__ubnt_selected_product:-}" ]]; then
+    __ubnt_selected_product="$(echo ${__ubnt_selected_product} | sed 's/-/_/g')"
+    __ubnt_product_command="$(echo ${__ubnt_product_command} | sed 's/-/_/g')"
+    __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__ubnt_product_version:-}" || true
+    exit
+  fi
+}
 
 # A wrapper function to get the available UniFi SDN Controller version number
 function __eubnt_cli_unifi_controller_get_available_version() {

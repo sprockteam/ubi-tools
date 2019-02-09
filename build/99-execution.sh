@@ -1,10 +1,8 @@
 ### Tests
 ##############################################################################
 
-if [[ -n "${__ubnt_product_command:-}" && -n "${__ubnt_selected_product:-}" ]]; then
-  __ubnt_selected_product="$(echo ${__ubnt_selected_product} | sed 's/-/_/g')"
-  __ubnt_product_command="$(echo ${__ubnt_product_command} | sed 's/-/_/g')"
-  __eubnt_${__ubnt_selected_product}_${__ubnt_product_command} "${__ubnt_product_version:-}"
+if __eubnt_unifi_controller_mongodb_evals "lts-devices"; then
+  echo "Found LTS devices"
 fi
 exit
 
@@ -12,6 +10,7 @@ exit
 ##############################################################################
 
 ln --force --symbolic "${__script_log}" "${__script_log_dir}/latest.log"
+__eubnt_invoke_cli
 __eubnt_script_colors
 if [[ -z "${__accept_license:-}" ]]; then
   __eubnt_show_header
@@ -28,28 +27,31 @@ else
   __eubnt_show_success "DNS appears to be working!"
 fi
 __apparent_public_ip_address="$(wget --quiet --output-document - "sprocket.link/ip" 2>/dev/null)"
-__eubnt_show_text "Apparent public IP address is "
-show_disk_free_space=""
-if [[ "${__disk_free_space%G*}" -le 2 ]]; then
-  show_disk_free_space="${__disk_free_space_mb}"
-else
-  show_disk_free_space="${__disk_free_space}"
+if [[ -n "${__apparent_public_ip_address:-}" ]]; then
+  __eubnt_show_text "Apparent public IP address: ${__apparent_public_ip_address}"
 fi
-__eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
-if [[ "${__disk_free_space%G*}" -lt "${__recommended_disk_free_space%G*}" ]]; then
-  __eubnt_show_warning "UBNT recommends at least ${__recommended_disk_free_space} of free space"
+show_disk_free_space="$([[ "${__disk_free_space_gb}" -lt 2 ]] && echo "${__disk_free_space_mb}MB" || echo "${__disk_free_space_gb}GB" )"
+__eubnt_show_warning "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
+if [[ "${__disk_free_space_gb}" -lt ${__recommended_disk_free_space_gb} ]]; then
+  __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
 else
-  if [[ "${__disk_free_space%G*}" -gt $(( ${__recommended_disk_free_space%G*} + ${__recommended_swap_total_gb%G*} )) ]]; then
+  if [[ "${__disk_free_space_gb}" -ge $(( ${__recommended_disk_free_space_gb} + ${__recommended_swap_total_gb} )) ]]; then
     have_space_for_swap=true
   fi
 fi
-__eubnt_show_text "Memory total size is ${__colors_bold_text}${__memory_total}${__colors_default}\\n"
-__eubnt_show_text "Swap total size is ${__colors_bold_text}${__swap_total}"
-if [[ "${__swap_total%M*}" -eq 0 && "${have_space_for_swap:-}" ]]; then
-  if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb} swap file?" "return"; then
+show_memory_total="$([[ "${__memory_total_gb}" -le 1 ]] && echo "${__memory_total_mb}MB" || echo "${__memory_total_gb}GB" )"
+__eubnt_show_text "Memory total size is ${__colors_bold_text}${show_memory_total}${__colors_default}"
+if [[ "${__memory_total_gb}" -lt ${__recommended_memory_total_gb} ]]; then
+  __eubnt_show_warning "Memory total size is below ${__colors_bold_text}${__recommended_memory_total_gb}GB${__colors_default}"
+fi
+show_swap_total="$([[ "${__swap_total_gb}" -le 1 ]] && echo "${__swap_total_mb}MB" || echo "${__swap_total_gb}GB" )"
+__eubnt_show_text "Swap total size is ${__colors_bold_text}${show_swap_total}${__colors_default}"
+if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
+  if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?" "return"; then
     __eubnt_setup_swap_file
   fi
 fi
+echo
 __eubnt_show_timer
 __eubnt_common_fixes
 __eubnt_setup_sources

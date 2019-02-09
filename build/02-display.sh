@@ -141,8 +141,8 @@ https://github.com/sprockteam/easy-ubnt/raw/master/LICENSE\\n
 Contributors (UBNT Community Username):"
   __eubnt_show_notice "${__script_contributors:-}"
   __eubnt_show_text "This script will guide you through installing, upgrading or removing
-the UniFi SDN Controller from UBNT, as well as tweaking, securing
-and maintaining this system according to best practices."
+the UBNT products, as well as tweaking, securing and maintaining
+this system according to best practices."
   __eubnt_show_warning "THIS SCRIPT IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND!"
 }
 
@@ -191,7 +191,8 @@ function __eubnt_show_whiptail() {
     if [[ "${1}" = "menu" && -n "${4:-}" ]]; then
       export NEWT_COLORS="${newt_colors_normal}"
       local -n menu_items=${4}
-      local menu_lines="${8:-10}"
+      local menu_lines=$((${#menu_items[@]} + 3))
+      menu_lines="${8:-${menu_lines}}"
       message=${2:-"Please make a selection:"}
       height="${6:-30}"
       width="${7:-80}"

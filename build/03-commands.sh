@@ -44,42 +44,77 @@ function __eubnt_is_port_in_use() {
 
 # Try to check if a given TCP port is open and accessible from the Internet
 # $1: The TCP port number to check
-# $2: If set to "return" then return a status code
 function __eubnt_probe_port() {
+  local return_code=1
   if [[ -n "${1:-}" ]]; then
     local port_to_probe="${1}"
   else
     __eubnt_show_warning "No port given at $(caller)"
     return 1
   fi
-  local return_code=0
   __eubnt_show_text "Checking if port probing service is available"
   local port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
   if [[ -z "${port_probe_url:-}" ]]; then
     __eubnt_show_notice "Port probing service is unavailable, try again later."
-    return_code=2
+    sleep 1.5
+    return 2
   else
     if ! __eubnt_is_port_in_use "${port_to_probe}"; then
-      "${full_command[@]}" &>>"${command_output}" &
-      listener_pid=$!
-      local break_probe_loop=
-      while [[ -z "${break_probe_loop:-}" ]]; do
-        __eubnt_show_text "Checking port ${port_to_probe}"
-        if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-          __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
-          if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
-            break_probe_loop=true
-          fi
-        else
-          __eubnt_show_success "Port ${port_to_probe} is open!"
-          break_probe_loop=true
+      nc -l "${port_to_probe}" &
+      local listener_pid=$!
+    fi
+    local break_loop=
+    while [[ -z "${break_loop:-}" ]]; do
+      __eubnt_show_text "Checking port ${port_to_probe}"
+      if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
+        __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
+        if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
+          break_loop=true
         fi
-      done
+      else
+        __eubnt_show_success "Port ${port_to_probe} is open!"
+        break_loop=true
+        return_code=0
+      fi
+    done
+  fi
+  if [[ -n "${listener_pid:-}" ]]; then
+    __eubnt_run_command "kill -9 ${listener_pid}" "quiet"
+  fi
+  return ${return_code}
+}
+
+# Compare two version numbers like 5.6.40 and 5.9.29
+# $1: The first version number to compare
+# $2: The comparison operator, could be "gt" "eq" or "ge"
+# $3: The second version number to compare
+function __eubnt_version_compare() {
+  if [[ -n "${1:-}" && -n "${3:-}" ]]; then
+    if [[ ! "${1}" =~ ${__regex_version_full} || ! "${3}" =~ ${__regex_version_full} ]]; then
+      __eubnt_show_warning "Invalid version number passed at $(caller)"
+      return 1
+    fi
+    IFS='.' read -r -a first_version <<< "${1}"
+    IFS='.' read -r -a second_version <<< "${3}"
+    if [[ "${2:-}" = "gt" ]]; then
+      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
+         && "${first_version[1]}" -ge "${second_version[1]}" \
+         && "${first_version[2]}" -gt "${second_version[2]}" ]]; then
+        return 0
+      fi
+    elif [[ "${2:-}" = "eq" ]]; then
+      if [[ "${1//.}" -eq "${2//.}" ]]; then
+        return 0
+      fi
+    elif [[ "${2:-}" = "ge" ]]; then
+      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
+         && "${first_version[1]}" -ge "${second_version[1]}" \
+         && "${first_version[2]}" -ge "${second_version[2]}" ]]; then
+        return 0
+      fi
     fi
   fi
-  if [[ "${2:-}" = "return" ]]; then
-    return ${return_code}
-  fi
+  return 1
 }
 
 # A wrapper to run commands, display a nice message and handle errors gracefully

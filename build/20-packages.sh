@@ -102,7 +102,7 @@ function __eubnt_install_updates() {
   local mongodb_update_available=
   local java_held=
   local mongodb_held=
-  local unifi_held=
+  echo
   if __eubnt_question_prompt "Do you want to install available package upgrades?" "return"; then
     __eubnt_install_package "unattended-upgrades" || true
     if __eubnt_is_package_installed "${__java_package_installed:-}"; then
@@ -110,9 +110,6 @@ function __eubnt_install_updates() {
     fi
     if __eubnt_is_package_installed "${__mongodb_package_installed:-}"; then
       mongodb_update_available=$(apt-cache policy "${__mongodb_package_installed}" | awk '/Candidate/{print $2}' | sed 's/.*://; s/-.*//')
-    fi
-    if __eubnt_is_package_installed "unifi"; then
-      __unifi_controller_update_available=$(apt-cache policy "unifi" | awk '/Candidate/{print $2}' | sed 's/-.*//')
     fi
     if [[ -n "${mongodb_update_available:-}" && "${mongodb_update_available:-}" != "${__mongodb_version_installed}" ]]; then
       __eubnt_show_text "MongoDB ${__mongodb_version_installed} is installed, ${__colors_warning_text}version ${mongodb_update_available} is available"
@@ -132,15 +129,6 @@ function __eubnt_install_updates() {
       fi
       echo
     fi
-    if [[ -n "${__unifi_controller_update_available:-}" && "${__unifi_controller_update_available:-}" != "${__unifi_controller_version_installed}" ]]; then
-      __eubnt_show_text "UniFi SDN Controller ${__unifi_controller_version_installed} is installed, ${__colors_warning_text}version ${__unifi_controller_update_available} is available"
-      echo
-      if ! __eubnt_question_prompt "Do you want to update UniFi SDN Controller to ${__unifi_controller_update_available}?" "return"; then
-        __eubnt_run_command "apt-mark hold unifi"
-        unifi_held=true
-      fi
-      echo
-    fi
     __eubnt_run_command "apt-get dist-upgrade --yes"
     __run_autoremove=true
   fi
@@ -149,9 +137,6 @@ function __eubnt_install_updates() {
   fi
   if [[ -n "${mongodb_held:-}" ]]; then
     __eubnt_run_command "apt-mark unhold ${__mongodb_package_installed}"
-  fi
-  if [[ -n "${unifi_held:-}" ]]; then
-    __eubnt_run_command "apt-mark unhold unifi"
   fi
 }
 

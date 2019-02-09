@@ -4,7 +4,7 @@
 # Get a UBNT product version number or download URL
 # $1: The UBNT product to check
 # $2: The version number to check, can be like "5", "5.9" or "5.9.29"
-#     Can also be one of the following keywords: "beta", "candidate" or "stable"
+#     Can also be one of the following keywords: "beta", "candidate", "stable" or "latest"
 # $3: The variable to assign the found version number or URL
 # $4: If set to "url" then return the full URL to the download file
 function __eubnt_ubnt_get_product() {
@@ -74,7 +74,7 @@ function __eubnt_ubnt_get_product() {
           product_platform="${product_platform}Debian7_${__architecture}"
         fi
       fi
-      if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" && ( -n "${version_major:-}" || "${2}" = "stable" ) ]]; then
+      if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
         update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
         declare -a wget_command=(wget --quiet --output-document - "${update_url}")
         if [[ -n "${bearer_token:-}" ]]; then
@@ -89,12 +89,20 @@ function __eubnt_ubnt_get_product() {
     fi
     update_url="sprocket.link/ubntdl"
     if [[ "${4:-}" = "url" ]]; then
-      download_url+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 4 ))
+      if [[ "${2}" = "latest" ]]; then
+        download_url+=($(wget --quiet --output-document - "${update_url}"  | head --lines 1 | cut --delimiter '|' --fields 4 ))
+      else
+        download_url+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 4 ))
+      fi
     else
-      found_version+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 3 ))
+      if [[ "${2}" = "latest" ]]; then
+        found_version+=($(wget --quiet --output-document - "${update_url}"  | head --lines 1 | cut --delimiter '|' --fields 3 ))
+      else
+        found_version+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 3 ))
+      fi
     fi
     download_url=($(printf "%s\\n" "${download_url[@]}" | sort --unique))
-    found_version=($(printf "%s\\n" "${found_version[@]}" | sort --unique))
+    found_version=($(printf "%s\\n" "${found_version[@]}" | sort --unique --version-sort))
     if [[ -n "${download_url[0]:-}" ]]; then
       if [[ -n "${3:-}" ]]; then
         eval "${3}=\"${download_url[0]}\""
