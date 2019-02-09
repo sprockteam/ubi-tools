@@ -1025,6 +1025,9 @@ function __eubnt_setup_certbot() {
     sleep 3
     return 0
   fi
+  if [[ "${__os_version_name}" = "jessie" ]]; then
+    __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography"
+  fi
   domain_name=
   if __eubnt_run_command "hostname --fqdn" "return" "domain_name"; then
     echo
@@ -1537,7 +1540,7 @@ function __eubnt_check_system() {
     __eubnt_run_command "service ntp stop"
     __eubnt_run_command "ntpdate 0.ubnt.pool.ntp.org"
     __eubnt_run_command "service ntp start"
-    dpkg-reconfigure --frontend Dialog tzdata
+    dpkg-reconfigure --frontend dialog tzdata
     __eubnt_show_success "Updated time is $(date)\\n"
     sleep 3
   fi
