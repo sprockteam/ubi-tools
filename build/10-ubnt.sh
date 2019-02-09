@@ -39,7 +39,6 @@ function __eubnt_ubnt_get_product() {
     local version_major=""
     local version_minor=""
     local version_patch=""
-    local bearer_token=""
     IFS='.' read -r -a version_array <<< "${2}"
     if [[ "${where_to_look:-}" = "ubnt" ]]; then
       if [[ -n "${version_array[0]:-}" && "${version_array[0]}" =~ ${__regex_number} ]]; then
@@ -60,9 +59,6 @@ function __eubnt_ubnt_get_product() {
         product_platform="${product_platform}debian"
       elif [[ "${ubnt_product}" = "unifi-protect" && -n "${__architecture:-}" ]]; then
         product_platform="${product_platform}Debian9_${__architecture}"
-        if [[ "${2}" = "beta" || "${2}" = "candidate" ]]; then
-          bearer_token="e80d2bea90b240f7b3d5c6f314c54ec2"
-        fi
       elif [[ "${ubnt_product}" = "unifi-video" && -n "${__architecture:-}" ]]; then
         if [[ -n "${__is_ubuntu:-}" ]]; then
           if [[ -n "${__os_version:-}" && "${__os_version//.}" -lt 1604 ]]; then
@@ -77,44 +73,25 @@ function __eubnt_ubnt_get_product() {
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
         update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
         declare -a wget_command=(wget --quiet --output-document - "${update_url}")
-        if [[ -n "${bearer_token:-}" ]]; then
-          wget_command+=(--header="Authorization: Bearer token:${bearer_token}")
-        fi
         if [[ "${4:-}" = "url" ]]; then
-          download_url=($(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href'))
+          download_url="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
         else
-          found_version=($(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g'))
+          found_version="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
         fi
       fi
     fi
-    update_url="sprocket.link/ubntdl"
-    if [[ "${4:-}" = "url" ]]; then
-      if [[ "${2}" = "latest" ]]; then
-        download_url+=($(wget --quiet --output-document - "${update_url}"  | head --lines 1 | cut --delimiter '|' --fields 4 ))
-      else
-        download_url+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 4 ))
-      fi
-    else
-      if [[ "${2}" = "latest" ]]; then
-        found_version+=($(wget --quiet --output-document - "${update_url}"  | head --lines 1 | cut --delimiter '|' --fields 3 ))
-      else
-        found_version+=($(wget --quiet --output-document - "${update_url}"  | grep "${ubnt_product}.*|${2}" | head --lines 1 | cut --delimiter '|' --fields 3 ))
-      fi
-    fi
-    download_url=($(printf "%s\\n" "${download_url[@]}" | sort --unique))
-    found_version=($(printf "%s\\n" "${found_version[@]}" | sort --unique --version-sort))
-    if [[ -n "${download_url[0]:-}" ]]; then
+    if [[ -n "${download_url:-}" ]]; then
       if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${download_url[0]}\""
+        eval "${3}=\"${download_url}\""
       else
-        echo "${download_url[0]}"
+        echo "${download_url}"
       fi
       return 0
-    elif [[ -n "${found_version[0]:-}" ]]; then
+    elif [[ -n "${found_version:-}" ]]; then
       if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${found_version[0]}\""
+        eval "${3}=\"${found_version}\""
       else
-        echo "${found_version[0]}"
+        echo "${found_version}"
       fi
       return 0
     fi
