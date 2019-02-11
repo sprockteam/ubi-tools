@@ -94,11 +94,11 @@ function __eubnt_unifi_controller_mongodb_evals() {
       "lts-devices")
         if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "mac"; then
           return 0
-        fi
+        fi;;
       "reset-password")
-      if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
-        return 0
-      fi
+        if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
+          return 0
+        fi;;
     esac
   fi
   return 1
@@ -111,9 +111,6 @@ function __eubnt_install_unifi_controller()
   local selected_version=""
   local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "lts")"
   local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable")"
-  local available_version_beta="$(__eubnt_ubnt_get_product "unifi-controller" "beta")"
-  local available_version_candidate="$(__eubnt_ubnt_get_product "unifi-controller" "candidate")"
-  local available_version_latest="$(__eubnt_ubnt_get_product "unifi-controller" "latest")"
   local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version:-}")"
   declare -a versions_to_install=()
   declare -a versions_to_select=()
@@ -133,16 +130,6 @@ function __eubnt_install_unifi_controller()
     if [[ -n "${available_version_stable:-}" ]]; then
       if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_stable}"; then
         versions_to_select+=("${available_version_stable}" "Current Stable Release")
-      fi
-    fi
-    if [[ -n "${available_version_beta:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_beta}"; then
-        versions_to_select+=("${available_version_beta}" "Beta Release")
-      fi
-    fi
-    if [[ -n "${available_version_candidate:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_candidate}"; then
-        versions_to_select+=("${available_version_candidate}" "Stable Candidate Release")
       fi
     fi
     versions_to_select+=("Custom" "" "Other" "" "Cancel" "")
