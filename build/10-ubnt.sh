@@ -47,7 +47,7 @@ function __eubnt_ubnt_get_product() {
         version_minor="&filter=eq~~version_minor~~${version_array[1]}"
       fi
       if [[ -n "${version_array[2]:-}" && "${version_array[2]}" =~ ${__regex_number} ]]; then
-        version_minor="&filter=eq~~version_patch~~${version_array[2]}"
+        version_patch="&filter=eq~~version_patch~~${version_array[2]}"
       fi
       local product="?filter=eq~~product~~${ubnt_product}"
       local product_channel="&filter=eq~~channel~~release"

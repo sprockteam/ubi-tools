@@ -141,20 +141,22 @@ function __eubnt_run_command() {
   declare -a full_command=()
   IFS=' ' read -r -a full_command <<< "${1}"
   if ! __eubnt_is_command "${full_command[0]}"; then
-    local found_package=
+    local found_package=""
     local unknown_command="${full_command[0]}"
     __eubnt_install_package "apt-file"
     __eubnt_run_command "apt-file update"
-    __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
-    if [[ -n "${found_package:-}" ]]; then
-      found_package="$(echo "${found_package}" | head --lines=1)"
-      if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
-        if ! __eubnt_install_package "${found_package}"; then
-          __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+    if [[ "${unknown_command}" != "apt-file" ]]; then
+      __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
+      if [[ -n "${found_package:-}" ]]; then
+        found_package="$(echo "${found_package}" | head --lines=1)"
+        if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
+          if ! __eubnt_install_package "${found_package}"; then
+            __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+          fi
         fi
+      else
+        __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
       fi
-    else
-      __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
     fi
   fi
   if [[ "${full_command[0]}" != "echo" ]]; then
