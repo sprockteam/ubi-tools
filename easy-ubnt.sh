@@ -1391,9 +1391,11 @@ function __eubnt_install_unifi_controller()
     fi
   fi
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
-    if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
-      versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+    if [[ "${selected_version:-}" =~ ${__regex_version_full} ]] && __eubnt_version_compare "${selected_version}" "gt" "${__unifi_controller_package_version}"; then
+      local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
+      if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
+        versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+      fi
     fi
   fi
   if [[ "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; then
@@ -1459,9 +1461,15 @@ function __eubnt_install_unifi_controller_version()
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
   fi
+  __eubnt_show_text "Waiting for UniFi SDN Controller to finish loading..."
+  echo
+  while ! __eubnt_is_unifi_controller_running; do
+    sleep 3
+  done
   local unifi_deb_file=""
   if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
     if [[ -f "${unifi_deb_file}" ]]; then
+      echo
       __eubnt_install_package "binutils"
       echo "unifi unifi/has_backup boolean true" | debconf-set-selections
       __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
@@ -1920,6 +1928,7 @@ function __eubnt_setup_ufw() {
   local have_unifi_ports=
   if [[ -f "${__sshd_config}" ]]; then
     ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+    __eubnt_run_command "sed -i 's|^ports=.*$|ports=${ssh_port}/tcp|' /etc/ufw/applications.d/openssh-server" "quiet"
   fi
   __eubnt_initialize_unifi_controller_variables
   if [[ -n "${__unifi_controller_port_tcp_inform:-}" \
@@ -1930,12 +1939,12 @@ function __eubnt_setup_ufw() {
      && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
     have_unifi_ports=true
     tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
-[unifi-controller]
+[UniFi_Controller]
 title=UniFi SDN Controller Ports
 description=Default ports used by the UniFi SDN Controller
 ports=${__unifi_controller_port_tcp_inform},${__unifi_controller_port_tcp_admin},${__unifi_controller_port_tcp_portal_http},${__unifi_controller_port_tcp_portal_https},${__unifi_controller_port_tcp_throughput}/tcp|${__unifi_controller_port_udp_stun}/udp
 
-[unifi-controller-local]
+[UniFi_Controller_Local_Discovery]
 title=UniFi SDN Controller Ports for Local Discovery
 description=Ports used for discovery of devices on the local network by the UniFi SDN Controller
 ports=${__unifi_controller_local_udp_port_discoverable_controller},${__unifi_controller_local_udp_port_ap_discovery}/udp
@@ -1956,27 +1965,27 @@ EOF
   fi
   if [[ -n "${ssh_port:-}" ]]; then
     if __eubnt_question_prompt "Do you want to allow access to SSH from any host?" "return"; then
-      __eubnt_run_command "ufw allow ${ssh_port}/tcp"
+      __eubnt_run_command "ufw allow OpenSSH"
     else
-      __eubnt_run_command "ufw --force delete allow ${ssh_port}/tcp" "quiet"
+      __eubnt_run_command "ufw --force delete allow OpenSSH" "quiet"
     fi
     echo
   fi
   if [[ -n "${have_unifi_ports:-}" ]]; then
     if __eubnt_question_prompt "Do you want to allow access to the UniFi SDN ports from any host?" "return"; then
-      __eubnt_run_command "ufw allow from any to any app unifi-controller"
+      __eubnt_run_command "ufw allow from any to any app UniFi_Controller"
     else
-      __eubnt_run_command "ufw --force delete allow from any to any app unifi-controller" "quiet"
+      __eubnt_run_command "ufw --force delete allow from any to any app UniFi_Controller" "quiet"
     fi
     echo
     if __eubnt_question_prompt "Will this controller discover devices on it's local network?" "return" "n"; then
-      __eubnt_run_command "ufw allow from any to any app unifi-controller-local"
+      __eubnt_run_command "ufw allow from any to any app UniFi_Controller_Local_Discovery"
     else
-      __eubnt_run_command "ufw --force delete allow from any to any app unifi-controller-local" "quiet"
+      __eubnt_run_command "ufw --force delete allow from any to any app UniFi_Controller_Local_Discovery" "quiet"
     fi
     echo
   else
-    __eubnt_show_warning "Unable to determine UniFi SDN Controller ports to allow. Is it installed?\\n"
+    __eubnt_show_warning "Unable to find configured UniFi SDN Controller ports. Is it installed?\\n"
   fi
   echo "y" | ufw enable >>"${__script_log}"
   __eubnt_run_command "ufw reload"

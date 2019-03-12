@@ -199,9 +199,11 @@ function __eubnt_install_unifi_controller()
     fi
   fi
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
-    if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
-      versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+    if [[ "${selected_version:-}" =~ ${__regex_version_full} ]] && __eubnt_version_compare "${selected_version}" "gt" "${__unifi_controller_package_version}"; then
+      local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
+      if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
+        versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+      fi
     fi
   fi
   if [[ "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; then
@@ -267,9 +269,15 @@ function __eubnt_install_unifi_controller_version()
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
   fi
+  __eubnt_show_text "Waiting for UniFi SDN Controller to finish loading..."
+  echo
+  while ! __eubnt_is_unifi_controller_running; do
+    sleep 3
+  done
   local unifi_deb_file=""
   if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
     if [[ -f "${unifi_deb_file}" ]]; then
+      echo
       __eubnt_install_package "binutils"
       echo "unifi unifi/has_backup boolean true" | debconf-set-selections
       __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
