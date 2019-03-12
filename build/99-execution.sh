@@ -1,11 +1,6 @@
 ### Tests
 ##############################################################################
 
-if __eubnt_unifi_controller_mongodb_evals "lts-devices"; then
-  echo "Found LTS devices"
-fi
-exit
-
 ### Execution of script
 ##############################################################################
 
@@ -20,8 +15,9 @@ if [[ -z "${__accept_license:-}" ]]; then
   echo
 fi
 __eubnt_show_header "Checking system..."
+__eubnt_install_dependencies
 __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet"
-if ! tail --lines=1 "${__script_log}" | grep --quiet --extended-regexp "${__regex_ip_address}"; then
+if ! tail --lines=2 "${__script_log}" | grep --quiet --extended-regexp "${__regex_ip_address}"; then
   __eubnt_show_error "Unable to resolve ${__ubnt_dl} using the following nameservers: ${__nameservers}"
 else
   __eubnt_show_success "DNS appears to be working!"
@@ -35,7 +31,7 @@ __eubnt_show_warning "Disk free space is ${__colors_bold_text}${show_disk_free_s
 if [[ "${__disk_free_space_gb}" -lt ${__recommended_disk_free_space_gb} ]]; then
   __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
 else
-  if [[ "${__disk_free_space_gb}" -ge $(( ${__recommended_disk_free_space_gb} + ${__recommended_swap_total_gb} )) ]]; then
+  if [[ "${__disk_free_space_gb}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
     have_space_for_swap=true
   fi
 fi
@@ -50,6 +46,10 @@ if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
   if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?" "return"; then
     __eubnt_setup_swap_file
   fi
+fi
+__eubnt_initialize_unifi_controller_variables
+if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+  __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
 fi
 echo
 __eubnt_show_timer
@@ -70,13 +70,15 @@ if [[ -f /var/run/reboot-required ]]; then
     exit 0
   fi
 fi
-__eubnt_install_java8
-__eubnt_install_mongodb
-__eubnt_install_unifi
-__eubnt_setup_ssh_server
-if [[ -n "${__unifi_domain_name:-}" ]]; then
-  __eubnt_setup_certbot
+if __eubnt_install_java8; then
+  if __eubnt_install_mongodb3_4; then
+    if __eubnt_install_unifi_controller; then
+      true
+    fi
+  fi
 fi
-__eubnt_setup_ufw
+__eubnt_setup_ssh_server || true
+__eubnt_setup_certbot || true
+__eubnt_setup_ufw || true
 __eubnt_show_success "\\nDone!\\n"
 sleep 3

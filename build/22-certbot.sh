@@ -4,7 +4,7 @@
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
-    return 0
+    return 1
   fi
   local source_backports=
   local skip_certbot_questions=
@@ -15,29 +15,27 @@ function __eubnt_setup_certbot() {
   local days_to_renewal=
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
-    if [[ ! $(command -v certbot) ]]; then
+    if ! __eubnt_is_command "certbot"; then
       if [[ -n "${__is_ubuntu:-}" ]]; then
-        __setup_source_certbot=true
-        __eubnt_setup_sources
+        if ! __eubnt_setup_sources "certbot"; then
+          return 1
+        fi
       fi
       if [[ "${__os_version_name}" = "jessie" ]]; then
-        __eubnt_run_command "apt-get install --yes --target-release jessie-backports certbot"
+        __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography certbot"
       else
         __eubnt_install_package "certbot"
       fi
     fi
   else
-    return 0
+    return 1
   fi
-  if [[ ! $(command -v certbot) ]]; then
+  if ! __eubnt_is_command "certbot"; then
     echo
     __eubnt_show_warning "Unable to setup certbot!"
     echo
     sleep 3
-    return 0
-  fi
-  if [[ "${__os_version_name}" = "jessie" ]]; then
-    __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography"
+    return 1
   fi
   domain_name=
   if __eubnt_run_command "hostname --fqdn" "return" "domain_name"; then
@@ -49,10 +47,10 @@ function __eubnt_setup_certbot() {
     __eubnt_get_user_input "\\nDomain name to use for the UniFi SDN Controller: " "domain_name"
   fi
   resolved_domain_name=$(dig +short "${domain_name}")
-  if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
-    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__machine_ip_address}\\n"
+  if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ]]; then
+    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}\\n"
     if ! __eubnt_question_prompt "" "return"; then
-      return 0
+      return 1
     fi
   fi
   days_to_renewal=0
@@ -139,7 +137,6 @@ EOF
     # shellcheck disable=SC2086
     if certbot certonly --agree-tos --standalone --preferred-challenges http-01 --http-01-port 80 --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then
       __eubnt_show_success "\\nCertbot succeeded for domain name: ${domain_name}"
-      __unifi_domain_name="${domain_name}"
       sleep 5
     else
       echo

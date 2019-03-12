@@ -15,7 +15,8 @@ function __eubnt_setup_ssh_server() {
   fi
   if [[ $(dpkg --list | grep "openssh-server") && -f "${__sshd_config}" ]]; then
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
-    __eubnt_show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n"
+    __eubnt_show_notice "Checking OpenSSH server settings for recommended changes..."
+    echo
     if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") ]]; then
       if __eubnt_question_prompt "Change SSH port from the default 22?" "return" "n"; then
         local ssh_port=""

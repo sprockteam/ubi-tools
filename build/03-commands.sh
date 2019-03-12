@@ -43,41 +43,44 @@ function __eubnt_is_port_in_use() {
 }
 
 # Try to check if a given TCP port is open and accessible from the Internet
-# $1: The TCP port number to check
+# $1: The TCP port number to check, if set to "check" then just check if port probing service is available
+# $2: If set to "skip" then skip the check if the port probing service is available
 function __eubnt_probe_port() {
   local return_code=1
   if [[ -n "${1:-}" ]]; then
     local port_to_probe="${1}"
+    local port_probe_url=""
   else
     __eubnt_show_warning "No port given at $(caller)"
     return 1
   fi
-  __eubnt_show_text "Checking if port probing service is available"
-  local port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-  if [[ -z "${port_probe_url:-}" ]]; then
-    __eubnt_show_notice "Port probing service is unavailable, try again later."
-    sleep 1.5
-    return 2
-  else
-    if ! __eubnt_is_port_in_use "${port_to_probe}"; then
-      nc -l "${port_to_probe}" &
-      local listener_pid=$!
+  if [[ "${2:-}" = "skip" ]]; then
+    __eubnt_show_text "Checking if port probing service is available"
+    port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
+    if [[ -z "${port_probe_url:-}" ]]; then
+      __eubnt_show_notice "Port probing service is unavailable, try again later."
+      sleep 1.5
+      return 2
     fi
-    local break_loop=
-    while [[ -z "${break_loop:-}" ]]; do
-      __eubnt_show_text "Checking port ${port_to_probe}"
-      if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-        __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
-        if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
-          break_loop=true
-        fi
-      else
-        __eubnt_show_success "Port ${port_to_probe} is open!"
-        break_loop=true
-        return_code=0
-      fi
-    done
   fi
+  if ! __eubnt_is_port_in_use "${port_to_probe}"; then
+    nc -l "${port_to_probe}" &
+    local listener_pid=$!
+  fi
+  local break_loop=
+  while [[ -z "${break_loop:-}" ]]; do
+    __eubnt_show_text "Checking port ${port_to_probe}"
+    if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
+      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
+      if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
+        break_loop=true
+      fi
+    else
+      __eubnt_show_success "Port ${port_to_probe} is open!"
+      break_loop=true
+      return_code=0
+    fi
+  done
   if [[ -n "${listener_pid:-}" ]]; then
     __eubnt_run_command "kill -9 ${listener_pid}" "quiet"
   fi
@@ -96,20 +99,20 @@ function __eubnt_version_compare() {
     fi
     IFS='.' read -r -a first_version <<< "${1}"
     IFS='.' read -r -a second_version <<< "${3}"
-    if [[ "${2:-}" = "gt" ]]; then
-      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
-         && "${first_version[1]}" -ge "${second_version[1]}" \
-         && "${first_version[2]}" -gt "${second_version[2]}" ]]; then
+    if [[ "${2:-}" = "eq" ]]; then
+      if [[ "${1//.}" -eq "${3//.}" ]]; then
         return 0
       fi
-    elif [[ "${2:-}" = "eq" ]]; then
-      if [[ "${1//.}" -eq "${2//.}" ]]; then
+    elif [[ "${2:-}" = "gt" ]]; then
+      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
+         && ( ("${first_version[1]}" -gt "${second_version[1]}") \
+         || ("${first_version[1]}" -eq "${second_version[1]}" && "${first_version[2]}" -gt "${second_version[2]}") ) ]]; then
         return 0
       fi
     elif [[ "${2:-}" = "ge" ]]; then
       if [[ "${first_version[0]}" -ge "${second_version[0]}" \
-         && "${first_version[1]}" -ge "${second_version[1]}" \
-         && "${first_version[2]}" -ge "${second_version[2]}" ]]; then
+         && ( ("${first_version[1]}" -gt "${second_version[1]}") \
+         || ("${first_version[1]}" -eq "${second_version[1]}" && "${first_version[2]}" -ge "${second_version[2]}") ) ]]; then
         return 0
       fi
     fi
@@ -144,8 +147,11 @@ function __eubnt_run_command() {
     __eubnt_run_command "apt-file update"
     __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
     if [[ -n "${found_package:-}" ]]; then
-      if ! __eubnt_install_package "${found_package}"; then
-        __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+      found_package="$(echo "${found_package}" | head --lines=1)"
+      if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
+        if ! __eubnt_install_package "${found_package}"; then
+          __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+        fi
       fi
     else
       __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
@@ -177,6 +183,7 @@ function __eubnt_run_command() {
         break
       fi
     done
+    # shellcheck disable=SC2086
     wait $background_pid
     command_return=$?
     if [[ ${command_return} -gt 0 ]]; then
@@ -203,7 +210,7 @@ function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
     if __eubnt_is_package_installed "${1}"; then
       if [[ "${3:-}" != "reinstall" ]]; then
-        __eubnt_echo_and_log "Package ${1} already installed [\\xE2\\x9C\\x93]"
+        __eubnt_echo_and_log "Package ${1} already installed [${__completed_mark}]"
         echo
         return 0
       fi
@@ -211,12 +218,12 @@ function __eubnt_install_package() {
     if ! __eubnt_is_package_installed "${1}"; then
       if [[ $? -gt 1 ]]; then
         __eubnt_run_command "dpkg --remove --force-all ${1}"
-        __eubnt_common_fixes
+        __eubnt_common_fixes "noheader"
       fi
     fi
     if ! __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       __eubnt_setup_sources
-      __eubnt_common_fixes
+      __eubnt_common_fixes "noheader"
     fi
     if __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       local i=0
@@ -224,7 +231,7 @@ function __eubnt_install_package() {
         echo -e -n "\\rWaiting for package manager to become available... [${__spinner:i++%${#__spinner}:1}]"
         sleep 0.5
       done
-      __eubnt_echo_and_log "\\rWaiting for package manager to become available... [\\xE2\\x9C\\x93]"
+      __eubnt_echo_and_log "\\rWaiting for package manager to become available... [${__completed_mark}]"
       echo
       if [[ -n "${2:-}" ]]; then
         DEBIAN_FRONTEND=noninteractive apt-get install --quiet --no-install-recommends --yes --target-release "${2}" "${1}" &>>"${__script_log}" &
@@ -242,16 +249,17 @@ function __eubnt_install_package() {
             break
           fi
         done
+        # shellcheck disable=SC2086
         wait $background_pid
         command_return=$?
         if [[ "${command_return:-}" -gt 0 ]]; then
-          __eubnt_echo_and_log "\\rInstalling package ${1} [x]"
+          __eubnt_echo_and_log "\\rInstalling package ${1} [${__failed_mark}]"
           echo
           if [[ "${3:-}" = "return" ]]; then
             return 1
           fi
         else
-          __eubnt_echo_and_log "\\rInstalling package ${1} [\\xE2\\x9C\\x93]"
+          __eubnt_echo_and_log "\\rInstalling package ${1} [${__completed_mark}]"
           echo
         fi
       fi

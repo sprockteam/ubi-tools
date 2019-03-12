@@ -9,7 +9,9 @@
 # Fix localhost issue on Ubuntu for sudo use
 # Update apt-get and apt-file
 function __eubnt_common_fixes {
-  __eubnt_show_header "Running common fixes..."
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Running common fixes..."
+  fi
   __eubnt_run_command "apt-get install --fix-broken --yes"
   __eubnt_run_command "apt-get autoremove --yes"
   __eubnt_run_command "apt-get clean --yes"

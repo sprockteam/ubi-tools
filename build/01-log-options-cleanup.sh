@@ -140,8 +140,9 @@ fi
 # Unset global script variables
 function __eubnt_cleanup_before_exit() {
   set +o xtrace
+  echo -e "${__colors_default:-}"
   if [[ -z "${__ubnt_product_command:-}" ]]; then
-    echo -e "${__colors_default:-}\\nCleaning up script, please wait...\\n"
+    echo -e "\\nCleaning up script, please wait...\\n"
   fi
   if [[ -n "${__run_autoremove:-}" ]]; then
     __eubnt_run_command "apt-get autoremove --yes"
@@ -165,6 +166,7 @@ function __eubnt_cleanup_before_exit() {
   for var_name in ${!__*}; do
     unset -v "${var_name}"
   done
+  echo
 }
 trap '__eubnt_cleanup_before_exit' EXIT
 

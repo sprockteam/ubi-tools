@@ -17,35 +17,37 @@ function __eubnt_show_error() {
   fi
   echo -e "${__colors_error_text}### ${__script_full_title}"
   echo -e "##############################################################################\\n"
-  echo -e "ERROR! Script halted!\\n"
+  echo -e "ERROR! Script halted!${__colors_default}\\n"
   if [[ -f "${__script_log:-}" ]]; then
-    echo -e "\\nTo help troubleshoot, here are the last five entries from the script log:\\n"
+    echo -e "To help troubleshoot, here are the last five entries from the script log:\\n"
     log_lines="$(tail --lines=5 "${__script_log}")"
-    echo -e "${__colors_default}${log_lines}\\n"
+    echo -e "${log_lines}\\n"
   fi
   __eubnt_echo_and_log "${__colors_error_text}Error at line $(caller)"
-  echo
   if [[ -n "${1:-}" ]]; then
-    __eubnt_echo_and_log "${__colors_error_text}Error message: ${1}${__colors_default}"
     echo
+    __eubnt_echo_and_log "Error message: ${1}"
   fi
+  echo -e "${__colors_default}"
   exit 1
 }
 trap '__eubnt_show_error' ERR
 
 # Print a header that informs the user what task is running
 # $1: Can be set with a string to display additional details about the current task
+# $2: Can be set to "noclear" to not clear the screen before displaying header
 ###
 # If the script is not in debug mode, then the screen will be cleared first
 # The script header will then be displayed
 # If $1 is set then it will be displayed under the header
 function __eubnt_show_header() {
-  if [[ -z "${__script_debug:-}" ]]; then
+  if [[ -z "${__script_debug:-}" || "${2:-}" != "noclear" ]]; then
     clear
   fi
   echo -e "${__colors_notice_text}### ${__script_full_title}"
   echo -e "##############################################################################${__colors_default}"
   __eubnt_show_notice "${1:-}"
+  echo
 }
 
 # Print text to the screen
@@ -130,6 +132,7 @@ function __eubnt_show_spinner() {
       break
     fi
   done
+  # shellcheck disable=SC2086
   wait $background_pid
 }
 

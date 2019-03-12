@@ -19,6 +19,7 @@ function __eubnt_unifi_controller_get_port() {
       "unifi.throughput.port" \
       "unifi.stun.port" \
     )
+    # shellcheck disable=SC2076
     if [[ " ${port_settings[@]} " =~ " ${1} " ]]; then
       grep "${1}" "${__unifi_controller_system_properties}" 2>/dev/null | tail --lines 1 | sed 's/.*=//g'
     fi
@@ -88,14 +89,16 @@ function __eubnt_is_unifi_controller_running() {
 # $1: Specify which "eval" command to issue
 #     "lts-devices" will check if devices are in the database that are only supported by LTS
 function __eubnt_unifi_controller_mongodb_evals() {
-  if [[ -n "${1:-}" ]]; then
+  if [[ -n "${1:-}" && $(__eubnt_is_command "mongo") ]]; then
     __eubnt_initialize_unifi_controller_variables
     case "${1}" in
       "lts-devices")
+        # shellcheck disable=SC2016
         if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "mac"; then
           return 0
         fi;;
       "reset-password")
+        # shellcheck disable=SC2016
         if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
           return 0
         fi;;
@@ -107,89 +110,155 @@ function __eubnt_unifi_controller_mongodb_evals() {
 # Show install/reinstall/update options for UniFi SDN Controller
 function __eubnt_install_unifi_controller()
 {
-  __eubnt_show_header "Installing UniFi SDN Controller...\\n"
+  __eubnt_show_header "Installing UniFi SDN Controller..."
   local selected_version=""
-  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "lts")"
+  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6")"
   local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable")"
-  local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version:-}")"
+  if [[ -n "${__ubnt_product_version:-}" ]]; then
+    local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version}")"
+  fi
   declare -a versions_to_install=()
   declare -a versions_to_select=()
+  __eubnt_initialize_unifi_controller_variables
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    __eubnt_show_notice "Version ${__unifi_controller_package_version} is currently installed"
+    if ! __eubnt_version_compare "${__unifi_controller_package_version}" "gt" "${available_version_stable}"; then
+      versions_to_select+=("${__unifi_controller_package_version}" "   Version currently installed")
+    fi
   fi
   if [[ -n "${__ubnt_product_version:-}" && -n "${available_version_selected:-}" ]]; then
     selected_version="${available_version_selected}"
   elif [[ -n "${__quick_mode:-}" && "${available_version_stable:-}" ]]; then
     selected_version="${available_version_stable}"
   else
+    local add_lts_version=true
+    local add_stable_version=true
     if [[ -n "${available_version_lts:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_lts}"; then
-        versions_to_select+=("${available_version_lts}" "LTS Release (Support for Gen1 AC and PicoM2)")
+      if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+        if ! __eubnt_version_compare "${available_version_lts}" "gt" "${__unifi_controller_package_version}"; then
+          add_lts_version=
+        fi
       fi
     fi
     if [[ -n "${available_version_stable:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_stable}"; then
-        versions_to_select+=("${available_version_stable}" "Current Stable Release")
+      if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+        if ! __eubnt_version_compare "${available_version_stable}" "gt" "${__unifi_controller_package_version}"; then
+          add_stable_version=
+        fi
       fi
     fi
-    versions_to_select+=("Custom" "" "Other" "" "Cancel" "")
+    if [[ -n "${add_lts_version:-}" ]]; then
+      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
+    fi
+    if [[ -n "${add_stable_version:-}" ]]; then
+      versions_to_select+=("${available_version_stable}" "   Latest public stable release")
+    fi
+    versions_to_select+=("Other" "   Manually enter a version number" "Early Access" "   Use this to paste Early Access release URLs")
     __eubnt_show_whiptail "menu" "Which UniFi SDN Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"
     if [[ "${selected_version}" = "Cancel" ]]; then
       return 1
     fi
     if [[ "${selected_version}" = "Other" ]]; then
-      local what_version=""
-      while [[ ! $(__eubnt_ubnt_get_product "unifi-controller" "${what_version}") ]]; do
-        __eubnt_get_user_input "What other version (i.e. 5.7 or 5.8.30, 5.4 or later) do you want to install?"
-      done
-      selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_version}")"
-    fi
-  fi
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    if __eubnt_version_compare "${selected_version}" "eq" "${__unifi_controller_package_version}"; then
-      versions_to_install=("${selected_version}")
-    elif __eubnt_version_compare "${selected_version}" "eq" "${__unifi_controller_package_version}"; then
-      local next_version="${__unifi_controller_package_version}"
-      while [[ $(__eubnt_version_compare "${selected_version}" "ge" "${next_version}") ]]; do
-        if [[ "${next_version}" ]]; then
-          next_version="$(__eubnt_ubnt_get_product "unifi-controller" "latest")"
+      local what_other_version=""
+      while [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; do
+        __eubnt_get_user_input "What other version (i.e. 5.7 or 5.8.30) do you want to install?" "what_other_version" "optional"
+        if [[ -z "${what_other_version:-}" ]]; then
+          if ! __eubnt_question_prompt "Do you want to cancel and return to the script?" "return"; then
+            return 1
+          fi
+        else
+          selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_other_version}" || echo "")"
+          if [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; then
+            if ! __eubnt_question_prompt "Version ${what_other_version} isn't available, do you want to try another?" "return"; then
+              return 1
+            fi
+            what_other_version=""
+          fi
         fi
       done
     fi
-  else
-    versions_to_install=("${selected_version}")
-  fi
-  versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
-  for version in "${!versions_to_install[@]}"; do
-    if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
-      return 1
+    if [[ "${selected_version}" = "Beta" ]]; then
+      local what_custom_url=""
+      local what_custom_file=""
+      while [[ ! "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; do
+        __eubnt_get_user_input "Please enter the early access URL to download and install?" "what_custom_url" "optional"
+        if [[ -z "${what_custom_url:-}" ]]; then
+          if ! __eubnt_question_prompt "Do you want to cancel and return to the script?" "return"; then
+            return 1
+          fi
+        else
+          if [[ "${what_custom_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${what_custom_url}"; then
+              selected_version="${what_custom_url}"
+          else
+            if ! __eubnt_question_prompt "The URL is inaccessible or invalid, do you want to try another?" "return"; then
+              return 1
+            fi
+            what_custom_url=""
+          fi
+        fi
+      done
     fi
-  done
+  fi
+  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+    local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
+    if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
+      versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+    fi
+  fi
+  if [[ "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    versions_to_install+=("$(__eubnt_extract_version_from_url "${selected_version}")|${selected_version}")
+  elif [[ "${selected_version:-}" =~ ${__regex_version_full} ]]; then
+    versions_to_install+=("${selected_version}|$(__eubnt_ubnt_get_product "unifi-controller" "${selected_version}" "url")")
+  fi
+  if [[ ${#versions_to_install[@]} -gt 0 ]]; then
+    versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
+    for version in "${!versions_to_install[@]}"; do
+      if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
+        return 1
+      fi
+    done
+  fi
 }
 
-# Installs the latest minor version for the given major UniFi SDN version
-# $1: The major version number to install
+# Installs the UniFi SDN Controller based on a version number and download URL
+# $1: The full version number to install and URL, example: "5.6.40|https://dl.ubnt.com/unifi/5.6.40/unifi_sysvinit_all.deb"
 # TODO: Try to recover if install fails
 function __eubnt_install_unifi_controller_version()
 {
-  if [[ -n "${1:-}" ]]; then
-    install_this_version="${1}"
-  else
+  if [[ -z "${1:-}" ]]; then
     return 1
   fi
-  __eubnt_show_header "Installing UniFi SDN version ${unifi_updated_version}..."
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    __eubnt_show_warning "Make sure you have a backup!"
-    __eubnt_question_prompt
+  local install_this_version="$(echo "${1}" | cut --fields 1 --delimiter '|')"
+  local install_this_url="$(echo "${1}" | cut --fields 2 --delimiter '|')"
+  if [[ ! "${install_this_version:-}" =~ ${__regex_version_full} ]]; then
+    return 1
   fi
-  if [[ "${__unifi_controller_package_version:-}" = "${install_this_version}" ]]; then
-    __eubnt_show_notice "UniFi SDN version ${__unifi_controller_package_version} is already installed"
-    if ! __eubnt_question_prompt "Do you want to reinstall?" "return" "n"; then
+  if [[ ! "${install_this_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    return 1
+  fi
+  __eubnt_show_header "Installing UniFi SDN Controller ${install_this_version:-}..."
+  __eubnt_initialize_unifi_controller_variables
+  if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]]; then
+    __eubnt_show_warning "Make sure you have a backup!"
+    echo
+    if ! __eubnt_question_prompt "" "return"; then
+      return 1
+    fi
+  fi
+  if __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${install_this_version:-}"; then
+    __eubnt_show_notice "UniFi SDN Controller ${install_this_version} is already installed..."
+    echo
+    if ! __eubnt_question_prompt "Do you want to reinstall it?" "return" "n"; then
+      return 1
+    fi
+  elif __eubnt_version_compare "${__unifi_controller_package_version:-}" "gt" "${install_this_version:-}"; then
+    __eubnt_show_warning "UniFi SDN Controller ${install_this_version} is a previous version..."
+    echo
+    if ! __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       return 1
     fi
   fi
   local release_notes=
-  if __eubnt_ubnt_get_release_notes "${unifi_updated_version}" "release_notes"; then
+  if __eubnt_ubnt_get_release_notes "${install_this_version}" "release_notes"; then
     if __eubnt_question_prompt "Do you want to view the release notes?" "return" "n"; then
       more "${release_notes}"
       __eubnt_question_prompt
@@ -198,22 +267,17 @@ function __eubnt_install_unifi_controller_version()
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
   fi
-  echo "unifi unifi/has_backup boolean true" | debconf-set-selections
-  if DEBIAN_FRONTEND=noninteractive apt-get install --yes unifi; then
-    __unifi_version_installed="${unifi_updated_version}"
-    tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
-    do
-      if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
-      then
-        __eubnt_show_success "\\n${log_line}\\n"
-        pkill --full tail
-      fi
-    done
-    sleep 1
-  else
-    if [[ -n "${__unifi_version_installed:-}" ]]; then
-      if __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"; then
-        __eubnt_run_command "apt-get update" "quiet"
+  local unifi_deb_file=""
+  if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
+    if [[ -f "${unifi_deb_file}" ]]; then
+      __eubnt_install_package "binutils"
+      echo "unifi unifi/has_backup boolean true" | debconf-set-selections
+      __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
+      if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
+        __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
+        while ! __eubnt_is_unifi_controller_running; do
+          sleep 3
+        done
       fi
     fi
   fi

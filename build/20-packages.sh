@@ -34,8 +34,8 @@ function __eubnt_setup_sources() {
     do_apt_update=
   fi
   if [[ "${1:-}" = "mongodb3_4" ]]; then
-    local distro_mongodb_installable_version="$(apt-cache madison mongodb | awk '{print $3}' | sed 's/.*://; s/[-+].*//;' | sort --version-sort | tail --lines=1)"
-    if [[ ! "${distro_mongodb_installable_version}" =~ ${__regex_version_mongodb3_4} ]]; then
+    local distro_mongodb_installable_version="$(apt-cache madison mongodb | sort --version-sort | tail --lines=1 | awk '{print $3}' | sed 's/.*://; s/[-+].*//;')"
+    if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
       local official_mongodb_repo_url=""
       if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || "${__is_mint:-}" ) ]]; then
         local os_version_name_for_official_mongodb_repo="${__os_version_name_ubuntu_equivalent}"
@@ -54,6 +54,7 @@ function __eubnt_setup_sources() {
       if [[ -n "${official_mongodb_repo_url:-}" ]]; then
         if __eubnt_add_source "${mongodb_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
           __eubnt_add_key "A15703C6" # MongoDB official package signing key
+          __install_mongodb_package="mongodb-org"
           do_apt_update=true
         fi
       fi
@@ -102,8 +103,11 @@ function __eubnt_install_updates() {
   local mongodb_update_available=
   local java_held=
   local mongodb_held=
-  echo
-  if __eubnt_question_prompt "Do you want to install available package upgrades?" "return"; then
+  __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet"
+  if [[ -z $(tail --lines=1 "${__script_log}" | awk '$1>0') ]]; then
+    return
+  fi
+  if __eubnt_question_prompt "Check for and install available package upgrades?" "return"; then
     __eubnt_install_package "unattended-upgrades" || true
     if __eubnt_is_package_installed "${__java_package_installed:-}"; then
       java_update_available=$(apt-cache policy "${__java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
@@ -173,17 +177,25 @@ function __eubnt_install_java8() {
 }
 
 # Install MongoDB
-function __eubnt_install_mongodb()
+function __eubnt_install_mongodb3_4()
 {
   if [[ -z "${__mongodb_package_installed:-}" ]]; then
     __eubnt_show_header "Installing MongoDB..."
-    __eubnt_setup_sources "mongodb"
-    if [[ -n "${__is_64:-}" || "${__mongodb_package_installed}" = "mongodb-org-server" ]]; then
-      __eubnt_install_package "mongodb-org"
-    else
-      __eubnt_install_package "mongodb"
-    fi
+    __eubnt_setup_sources "mongodb3_4"
+    __eubnt_install_package "${__install_mongodb_package:-}"
   fi
+}
+
+# Install script dependencies
+function __eubnt_install_dependencies()
+{
+  __eubnt_install_package "apt-transport-https" || true
+  __eubnt_install_package "sudo" || true
+  __eubnt_install_package "curl" || true
+  __eubnt_install_package "net-tools" || true
+  __eubnt_install_package "dnsutils" || true
+  __eubnt_install_package "psmisc" || true
+  __eubnt_install_package "jq" || true
 }
 
 ### End ###

@@ -27,9 +27,6 @@ Sam Sawyer (ssawyer)"
 # GNU General Public License v3.0
 # Copyright (c) 2012-2018 Vidar 'koala_man' Holen and contributors
 ###
-# Glenn Rietveld (AmazedMender16)
-# https://glennr.nl
-###
 # https://unix.stackexchange.com/a/159369 - Basic sed usage
 # https://stackoverflow.com/a/26568996 - Combine multiple sed patterns
 # https://stackoverflow.com/a/4168417 - Use cut to split variable at delimiter
@@ -48,6 +45,8 @@ Sam Sawyer (ssawyer)"
 # https://askubuntu.com/a/90219 - Purge un-unsed kernels in /boot on Ubuntu
 # https://unix.stackexchange.com/a/77738 - Parse apt-cache with madison script
 # https://unix.stackexchange.com/a/490994 - Sort array
+# https://stackoverflow.com/a/13373256 - Extract substring
+# https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
 ###
 
 
@@ -214,11 +213,15 @@ __apt_sources_dir="/etc/apt/sources.list.d"
 __sshd_config="/etc/ssh/sshd_config"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
+__regex_url='^http(s)?:\/\/\S+$'
+__regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
 __regex_number='^[0-9]+$'
 __regex_version_major_minor='^[0-9]+\.[0-9]+$'
 __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
 __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
+__version_mongodb3_4="3.4.99"
+__install_mongodb_package="mongodb"
 __recommended_nameserver="9.9.9.9"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
 __github_api_releases_stable="${__github_api_releases_all}/latest"

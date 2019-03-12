@@ -4,9 +4,8 @@
 # Get a UBNT product version number or download URL
 # $1: The UBNT product to check
 # $2: The version number to check, can be like "5", "5.9" or "5.9.29"
-#     Can also be one of the following keywords: "beta", "candidate", "stable" or "latest"
-# $3: The variable to assign the found version number or URL
-# $4: If set to "url" then return the full URL to the download file
+# $3: If set to "url" then return the full URL to the download file
+# $4: The variable to assign the found version number or URL, if not set then result will be echoed
 function __eubnt_ubnt_get_product() {
   if [[ -n "${1:-}" && -n "${2:-}" ]]; then
     local ubnt_product=""
@@ -21,8 +20,8 @@ function __eubnt_ubnt_get_product() {
       return 1
     fi
     local can_install=
-    local where_to_look="$(echo ${__ubnt_products[$ubnt_product]} | cut --delimiter '|' --fields 2)"
-    IFS=',' read -r -a architectures_supported <<< "$(echo ${__ubnt_products[$ubnt_product]} | cut --delimiter '|' --fields 3)"
+    local where_to_look="$(echo "${__ubnt_products[$ubnt_product]}" | cut --delimiter '|' --fields 2)"
+    IFS=',' read -r -a architectures_supported <<< "$(echo "${__ubnt_products[$ubnt_product]}" | cut --delimiter '|' --fields 3)"
     for arch in "${!architectures_supported[@]}"; do
       if [[ "${architectures_supported[$arch]}" = "${__architecture}" ]]; then
         can_install=true
@@ -34,8 +33,8 @@ function __eubnt_ubnt_get_product() {
       return 1
     fi
     local update_url=
-    declare -a download_url=()
-    declare -a found_version=()
+    local download_url=""
+    local found_version=""
     local version_major=""
     local version_minor=""
     local version_patch=""
@@ -73,23 +72,25 @@ function __eubnt_ubnt_get_product() {
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
         update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
         declare -a wget_command=(wget --quiet --output-document - "${update_url}")
-        if [[ "${4:-}" = "url" ]]; then
+        if [[ "${3:-}" = "url" ]]; then
+          # shellcheck disable=SC2068
           download_url="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
         else
+          # shellcheck disable=SC2068
           found_version="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
         fi
       fi
     fi
     if [[ -n "${download_url:-}" ]]; then
-      if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${download_url}\""
+      if [[ -n "${4:-}" ]]; then
+        eval "${4}=\"${download_url}\""
       else
         echo "${download_url}"
       fi
       return 0
     elif [[ -n "${found_version:-}" ]]; then
-      if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${found_version}\""
+      if [[ -n "${4:-}" ]]; then
+        eval "${4}=\"${found_version}\""
       else
         echo "${found_version}"
       fi
@@ -122,14 +123,41 @@ function __eubnt_ubnt_get_release_notes() {
   local update_url="${__ubnt_update_api}?filter=eq~~platform~~document${product}${version_major}${version_minor}${version_patch}&sort=-version&limit=1"
   local release_notes_url="$(wget --quiet --output-document - "${update_url:-}" | jq -r '._embedded.firmware | .[0] | ._links.changelog.href')"
   local release_notes_file="${__script_temp_dir}/${3:-unifi-controller}-${1}-release-notes.md"
-  __eubnt_add_to_log "Trying to get release notes from: ${release_notes_url:-}"
-  if wget --quiet --output-document - "${release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file:-}"; then
-    if [[ -f "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
-      eval "${2}=\"${release_notes_file}\""
-      return 0
+  if [[ "${release_notes_url:-}" =~ ${__regex_url} ]]; then
+    __eubnt_add_to_log "Trying to get release notes from: ${release_notes_url:-}"
+    if wget --quiet --output-document - "${release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file:-}"; then
+      if [[ -f "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
+        eval "${2}=\"${release_notes_file}\""
+        return 0
+      fi
     fi
   fi
   return 1
+}
+
+# Try to get a Debian install file from the UBNT
+# $1: The URL to download
+# $2: The variable to assign the filename
+# $3: The UBNT product
+function __eubnt_download_ubnt_deb() {
+  if [[ "${1:-}" =~ ${__regex_url_ubnt_deb} && -n "${2:-}" ]]; then
+    local deb_url="${1}"
+    local deb_version="$(__eubnt_extract_version_from_url "${deb_url}")"
+    local deb_file="${__script_temp_dir}/${3:-unifi-controller}_${deb_version:-custom}.deb"
+    if __eubnt_run_command "wget --quiet --output-document ${deb_file} ${deb_url}"; then
+      if [[ -f "${deb_file}" ]]; then
+        eval "${2}=\"${deb_file}\""
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+# Tries to extract a version substring from a given UBNT URL
+# $1: The URL string
+function __eubnt_extract_version_from_url() {
+  echo "${1:-}" | grep --only-matching --extended-regexp "[0-9]+\.[0-9]+\.[0-9]+" | head --lines=1
 }
 
 ### End ###

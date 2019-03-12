@@ -27,9 +27,6 @@ Sam Sawyer (ssawyer)"
 # GNU General Public License v3.0
 # Copyright (c) 2012-2018 Vidar 'koala_man' Holen and contributors
 ###
-# Glenn Rietveld (AmazedMender16)
-# https://glennr.nl
-###
 # https://unix.stackexchange.com/a/159369 - Basic sed usage
 # https://stackoverflow.com/a/26568996 - Combine multiple sed patterns
 # https://stackoverflow.com/a/4168417 - Use cut to split variable at delimiter
@@ -48,6 +45,8 @@ Sam Sawyer (ssawyer)"
 # https://askubuntu.com/a/90219 - Purge un-unsed kernels in /boot on Ubuntu
 # https://unix.stackexchange.com/a/77738 - Parse apt-cache with madison script
 # https://unix.stackexchange.com/a/490994 - Sort array
+# https://stackoverflow.com/a/13373256 - Extract substring
+# https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
 ###
 
 
@@ -214,11 +213,15 @@ __apt_sources_dir="/etc/apt/sources.list.d"
 __sshd_config="/etc/ssh/sshd_config"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
+__regex_url='^http(s)?:\/\/\S+$'
+__regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
 __regex_number='^[0-9]+$'
 __regex_version_major_minor='^[0-9]+\.[0-9]+$'
 __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
 __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
+__version_mongodb3_4="3.4.99"
+__install_mongodb_package="mongodb"
 __recommended_nameserver="9.9.9.9"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
 __github_api_releases_stable="${__github_api_releases_all}/latest"
@@ -376,8 +379,9 @@ fi
 # Unset global script variables
 function __eubnt_cleanup_before_exit() {
   set +o xtrace
+  echo -e "${__colors_default:-}"
   if [[ -z "${__ubnt_product_command:-}" ]]; then
-    echo -e "${__colors_default:-}\\nCleaning up script, please wait...\\n"
+    echo -e "\\nCleaning up script, please wait...\\n"
   fi
   if [[ -n "${__run_autoremove:-}" ]]; then
     __eubnt_run_command "apt-get autoremove --yes"
@@ -401,6 +405,7 @@ function __eubnt_cleanup_before_exit() {
   for var_name in ${!__*}; do
     unset -v "${var_name}"
   done
+  echo
 }
 trap '__eubnt_cleanup_before_exit' EXIT
 
@@ -423,35 +428,37 @@ function __eubnt_show_error() {
   fi
   echo -e "${__colors_error_text}### ${__script_full_title}"
   echo -e "##############################################################################\\n"
-  echo -e "ERROR! Script halted!\\n"
+  echo -e "ERROR! Script halted!${__colors_default}\\n"
   if [[ -f "${__script_log:-}" ]]; then
-    echo -e "\\nTo help troubleshoot, here are the last five entries from the script log:\\n"
+    echo -e "To help troubleshoot, here are the last five entries from the script log:\\n"
     log_lines="$(tail --lines=5 "${__script_log}")"
-    echo -e "${__colors_default}${log_lines}\\n"
+    echo -e "${log_lines}\\n"
   fi
   __eubnt_echo_and_log "${__colors_error_text}Error at line $(caller)"
-  echo
   if [[ -n "${1:-}" ]]; then
-    __eubnt_echo_and_log "${__colors_error_text}Error message: ${1}${__colors_default}"
     echo
+    __eubnt_echo_and_log "Error message: ${1}"
   fi
+  echo -e "${__colors_default}"
   exit 1
 }
 trap '__eubnt_show_error' ERR
 
 # Print a header that informs the user what task is running
 # $1: Can be set with a string to display additional details about the current task
+# $2: Can be set to "noclear" to not clear the screen before displaying header
 ###
 # If the script is not in debug mode, then the screen will be cleared first
 # The script header will then be displayed
 # If $1 is set then it will be displayed under the header
 function __eubnt_show_header() {
-  if [[ -z "${__script_debug:-}" ]]; then
+  if [[ -z "${__script_debug:-}" || "${2:-}" != "noclear" ]]; then
     clear
   fi
   echo -e "${__colors_notice_text}### ${__script_full_title}"
   echo -e "##############################################################################${__colors_default}"
   __eubnt_show_notice "${1:-}"
+  echo
 }
 
 # Print text to the screen
@@ -536,6 +543,7 @@ function __eubnt_show_spinner() {
       break
     fi
   done
+  # shellcheck disable=SC2086
   wait $background_pid
 }
 
@@ -737,41 +745,44 @@ function __eubnt_is_port_in_use() {
 }
 
 # Try to check if a given TCP port is open and accessible from the Internet
-# $1: The TCP port number to check
+# $1: The TCP port number to check, if set to "check" then just check if port probing service is available
+# $2: If set to "skip" then skip the check if the port probing service is available
 function __eubnt_probe_port() {
   local return_code=1
   if [[ -n "${1:-}" ]]; then
     local port_to_probe="${1}"
+    local port_probe_url=""
   else
     __eubnt_show_warning "No port given at $(caller)"
     return 1
   fi
-  __eubnt_show_text "Checking if port probing service is available"
-  local port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-  if [[ -z "${port_probe_url:-}" ]]; then
-    __eubnt_show_notice "Port probing service is unavailable, try again later."
-    sleep 1.5
-    return 2
-  else
-    if ! __eubnt_is_port_in_use "${port_to_probe}"; then
-      nc -l "${port_to_probe}" &
-      local listener_pid=$!
+  if [[ "${2:-}" = "skip" ]]; then
+    __eubnt_show_text "Checking if port probing service is available"
+    port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
+    if [[ -z "${port_probe_url:-}" ]]; then
+      __eubnt_show_notice "Port probing service is unavailable, try again later."
+      sleep 1.5
+      return 2
     fi
-    local break_loop=
-    while [[ -z "${break_loop:-}" ]]; do
-      __eubnt_show_text "Checking port ${port_to_probe}"
-      if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-        __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
-        if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
-          break_loop=true
-        fi
-      else
-        __eubnt_show_success "Port ${port_to_probe} is open!"
-        break_loop=true
-        return_code=0
-      fi
-    done
   fi
+  if ! __eubnt_is_port_in_use "${port_to_probe}"; then
+    nc -l "${port_to_probe}" &
+    local listener_pid=$!
+  fi
+  local break_loop=
+  while [[ -z "${break_loop:-}" ]]; do
+    __eubnt_show_text "Checking port ${port_to_probe}"
+    if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
+      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
+      if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
+        break_loop=true
+      fi
+    else
+      __eubnt_show_success "Port ${port_to_probe} is open!"
+      break_loop=true
+      return_code=0
+    fi
+  done
   if [[ -n "${listener_pid:-}" ]]; then
     __eubnt_run_command "kill -9 ${listener_pid}" "quiet"
   fi
@@ -790,20 +801,20 @@ function __eubnt_version_compare() {
     fi
     IFS='.' read -r -a first_version <<< "${1}"
     IFS='.' read -r -a second_version <<< "${3}"
-    if [[ "${2:-}" = "gt" ]]; then
-      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
-         && "${first_version[1]}" -ge "${second_version[1]}" \
-         && "${first_version[2]}" -gt "${second_version[2]}" ]]; then
+    if [[ "${2:-}" = "eq" ]]; then
+      if [[ "${1//.}" -eq "${3//.}" ]]; then
         return 0
       fi
-    elif [[ "${2:-}" = "eq" ]]; then
-      if [[ "${1//.}" -eq "${2//.}" ]]; then
+    elif [[ "${2:-}" = "gt" ]]; then
+      if [[ "${first_version[0]}" -ge "${second_version[0]}" \
+         && ( ("${first_version[1]}" -gt "${second_version[1]}") \
+         || ("${first_version[1]}" -eq "${second_version[1]}" && "${first_version[2]}" -gt "${second_version[2]}") ) ]]; then
         return 0
       fi
     elif [[ "${2:-}" = "ge" ]]; then
       if [[ "${first_version[0]}" -ge "${second_version[0]}" \
-         && "${first_version[1]}" -ge "${second_version[1]}" \
-         && "${first_version[2]}" -ge "${second_version[2]}" ]]; then
+         && ( ("${first_version[1]}" -gt "${second_version[1]}") \
+         || ("${first_version[1]}" -eq "${second_version[1]}" && "${first_version[2]}" -ge "${second_version[2]}") ) ]]; then
         return 0
       fi
     fi
@@ -838,8 +849,11 @@ function __eubnt_run_command() {
     __eubnt_run_command "apt-file update"
     __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
     if [[ -n "${found_package:-}" ]]; then
-      if ! __eubnt_install_package "${found_package}"; then
-        __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+      found_package="$(echo "${found_package}" | head --lines=1)"
+      if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
+        if ! __eubnt_install_package "${found_package}"; then
+          __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+        fi
       fi
     else
       __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
@@ -871,6 +885,7 @@ function __eubnt_run_command() {
         break
       fi
     done
+    # shellcheck disable=SC2086
     wait $background_pid
     command_return=$?
     if [[ ${command_return} -gt 0 ]]; then
@@ -897,7 +912,7 @@ function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
     if __eubnt_is_package_installed "${1}"; then
       if [[ "${3:-}" != "reinstall" ]]; then
-        __eubnt_echo_and_log "Package ${1} already installed [\\xE2\\x9C\\x93]"
+        __eubnt_echo_and_log "Package ${1} already installed [${__completed_mark}]"
         echo
         return 0
       fi
@@ -905,12 +920,12 @@ function __eubnt_install_package() {
     if ! __eubnt_is_package_installed "${1}"; then
       if [[ $? -gt 1 ]]; then
         __eubnt_run_command "dpkg --remove --force-all ${1}"
-        __eubnt_common_fixes
+        __eubnt_common_fixes "noheader"
       fi
     fi
     if ! __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       __eubnt_setup_sources
-      __eubnt_common_fixes
+      __eubnt_common_fixes "noheader"
     fi
     if __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       local i=0
@@ -918,7 +933,7 @@ function __eubnt_install_package() {
         echo -e -n "\\rWaiting for package manager to become available... [${__spinner:i++%${#__spinner}:1}]"
         sleep 0.5
       done
-      __eubnt_echo_and_log "\\rWaiting for package manager to become available... [\\xE2\\x9C\\x93]"
+      __eubnt_echo_and_log "\\rWaiting for package manager to become available... [${__completed_mark}]"
       echo
       if [[ -n "${2:-}" ]]; then
         DEBIAN_FRONTEND=noninteractive apt-get install --quiet --no-install-recommends --yes --target-release "${2}" "${1}" &>>"${__script_log}" &
@@ -936,16 +951,17 @@ function __eubnt_install_package() {
             break
           fi
         done
+        # shellcheck disable=SC2086
         wait $background_pid
         command_return=$?
         if [[ "${command_return:-}" -gt 0 ]]; then
-          __eubnt_echo_and_log "\\rInstalling package ${1} [x]"
+          __eubnt_echo_and_log "\\rInstalling package ${1} [${__failed_mark}]"
           echo
           if [[ "${3:-}" = "return" ]]; then
             return 1
           fi
         else
-          __eubnt_echo_and_log "\\rInstalling package ${1} [\\xE2\\x9C\\x93]"
+          __eubnt_echo_and_log "\\rInstalling package ${1} [${__completed_mark}]"
           echo
         fi
       fi
@@ -1016,9 +1032,8 @@ function __eubnt_add_key() {
 # Get a UBNT product version number or download URL
 # $1: The UBNT product to check
 # $2: The version number to check, can be like "5", "5.9" or "5.9.29"
-#     Can also be one of the following keywords: "beta", "candidate", "stable" or "latest"
-# $3: The variable to assign the found version number or URL
-# $4: If set to "url" then return the full URL to the download file
+# $3: If set to "url" then return the full URL to the download file
+# $4: The variable to assign the found version number or URL, if not set then result will be echoed
 function __eubnt_ubnt_get_product() {
   if [[ -n "${1:-}" && -n "${2:-}" ]]; then
     local ubnt_product=""
@@ -1033,8 +1048,8 @@ function __eubnt_ubnt_get_product() {
       return 1
     fi
     local can_install=
-    local where_to_look="$(echo ${__ubnt_products[$ubnt_product]} | cut --delimiter '|' --fields 2)"
-    IFS=',' read -r -a architectures_supported <<< "$(echo ${__ubnt_products[$ubnt_product]} | cut --delimiter '|' --fields 3)"
+    local where_to_look="$(echo "${__ubnt_products[$ubnt_product]}" | cut --delimiter '|' --fields 2)"
+    IFS=',' read -r -a architectures_supported <<< "$(echo "${__ubnt_products[$ubnt_product]}" | cut --delimiter '|' --fields 3)"
     for arch in "${!architectures_supported[@]}"; do
       if [[ "${architectures_supported[$arch]}" = "${__architecture}" ]]; then
         can_install=true
@@ -1046,8 +1061,8 @@ function __eubnt_ubnt_get_product() {
       return 1
     fi
     local update_url=
-    declare -a download_url=()
-    declare -a found_version=()
+    local download_url=""
+    local found_version=""
     local version_major=""
     local version_minor=""
     local version_patch=""
@@ -1085,23 +1100,25 @@ function __eubnt_ubnt_get_product() {
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
         update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
         declare -a wget_command=(wget --quiet --output-document - "${update_url}")
-        if [[ "${4:-}" = "url" ]]; then
+        if [[ "${3:-}" = "url" ]]; then
+          # shellcheck disable=SC2068
           download_url="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
         else
+          # shellcheck disable=SC2068
           found_version="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
         fi
       fi
     fi
     if [[ -n "${download_url:-}" ]]; then
-      if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${download_url}\""
+      if [[ -n "${4:-}" ]]; then
+        eval "${4}=\"${download_url}\""
       else
         echo "${download_url}"
       fi
       return 0
     elif [[ -n "${found_version:-}" ]]; then
-      if [[ -n "${3:-}" ]]; then
-        eval "${3}=\"${found_version}\""
+      if [[ -n "${4:-}" ]]; then
+        eval "${4}=\"${found_version}\""
       else
         echo "${found_version}"
       fi
@@ -1134,14 +1151,41 @@ function __eubnt_ubnt_get_release_notes() {
   local update_url="${__ubnt_update_api}?filter=eq~~platform~~document${product}${version_major}${version_minor}${version_patch}&sort=-version&limit=1"
   local release_notes_url="$(wget --quiet --output-document - "${update_url:-}" | jq -r '._embedded.firmware | .[0] | ._links.changelog.href')"
   local release_notes_file="${__script_temp_dir}/${3:-unifi-controller}-${1}-release-notes.md"
-  __eubnt_add_to_log "Trying to get release notes from: ${release_notes_url:-}"
-  if wget --quiet --output-document - "${release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file:-}"; then
-    if [[ -f "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
-      eval "${2}=\"${release_notes_file}\""
-      return 0
+  if [[ "${release_notes_url:-}" =~ ${__regex_url} ]]; then
+    __eubnt_add_to_log "Trying to get release notes from: ${release_notes_url:-}"
+    if wget --quiet --output-document - "${release_notes_url:-}" | sed '/#### Recommended Firmware:/,$d' 1>"${release_notes_file:-}"; then
+      if [[ -f "${release_notes_file:-}" && -s "${release_notes_file:-}" ]]; then
+        eval "${2}=\"${release_notes_file}\""
+        return 0
+      fi
     fi
   fi
   return 1
+}
+
+# Try to get a Debian install file from the UBNT
+# $1: The URL to download
+# $2: The variable to assign the filename
+# $3: The UBNT product
+function __eubnt_download_ubnt_deb() {
+  if [[ "${1:-}" =~ ${__regex_url_ubnt_deb} && -n "${2:-}" ]]; then
+    local deb_url="${1}"
+    local deb_version="$(__eubnt_extract_version_from_url "${deb_url}")"
+    local deb_file="${__script_temp_dir}/${3:-unifi-controller}_${deb_version:-custom}.deb"
+    if __eubnt_run_command "wget --quiet --output-document ${deb_file} ${deb_url}"; then
+      if [[ -f "${deb_file}" ]]; then
+        eval "${2}=\"${deb_file}\""
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+# Tries to extract a version substring from a given UBNT URL
+# $1: The URL string
+function __eubnt_extract_version_from_url() {
+  echo "${1:-}" | grep --only-matching --extended-regexp "[0-9]+\.[0-9]+\.[0-9]+" | head --lines=1
 }
 
 ### UniFi SDN Controller functions
@@ -1165,6 +1209,7 @@ function __eubnt_unifi_controller_get_port() {
       "unifi.throughput.port" \
       "unifi.stun.port" \
     )
+    # shellcheck disable=SC2076
     if [[ " ${port_settings[@]} " =~ " ${1} " ]]; then
       grep "${1}" "${__unifi_controller_system_properties}" 2>/dev/null | tail --lines 1 | sed 's/.*=//g'
     fi
@@ -1234,14 +1279,16 @@ function __eubnt_is_unifi_controller_running() {
 # $1: Specify which "eval" command to issue
 #     "lts-devices" will check if devices are in the database that are only supported by LTS
 function __eubnt_unifi_controller_mongodb_evals() {
-  if [[ -n "${1:-}" ]]; then
+  if [[ -n "${1:-}" && $(__eubnt_is_command "mongo") ]]; then
     __eubnt_initialize_unifi_controller_variables
     case "${1}" in
       "lts-devices")
+        # shellcheck disable=SC2016
         if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "mac"; then
           return 0
         fi;;
       "reset-password")
+        # shellcheck disable=SC2016
         if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} --eval 'db.getSiblingDB("ace").device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
           return 0
         fi;;
@@ -1253,89 +1300,155 @@ function __eubnt_unifi_controller_mongodb_evals() {
 # Show install/reinstall/update options for UniFi SDN Controller
 function __eubnt_install_unifi_controller()
 {
-  __eubnt_show_header "Installing UniFi SDN Controller...\\n"
+  __eubnt_show_header "Installing UniFi SDN Controller..."
   local selected_version=""
-  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "lts")"
+  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6")"
   local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable")"
-  local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version:-}")"
+  if [[ -n "${__ubnt_product_version:-}" ]]; then
+    local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version}")"
+  fi
   declare -a versions_to_install=()
   declare -a versions_to_select=()
+  __eubnt_initialize_unifi_controller_variables
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    __eubnt_show_notice "Version ${__unifi_controller_package_version} is currently installed"
+    if ! __eubnt_version_compare "${__unifi_controller_package_version}" "gt" "${available_version_stable}"; then
+      versions_to_select+=("${__unifi_controller_package_version}" "   Version currently installed")
+    fi
   fi
   if [[ -n "${__ubnt_product_version:-}" && -n "${available_version_selected:-}" ]]; then
     selected_version="${available_version_selected}"
   elif [[ -n "${__quick_mode:-}" && "${available_version_stable:-}" ]]; then
     selected_version="${available_version_stable}"
   else
+    local add_lts_version=true
+    local add_stable_version=true
     if [[ -n "${available_version_lts:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_lts}"; then
-        versions_to_select+=("${available_version_lts}" "LTS Release (Support for Gen1 AC and PicoM2)")
+      if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+        if ! __eubnt_version_compare "${available_version_lts}" "gt" "${__unifi_controller_package_version}"; then
+          add_lts_version=
+        fi
       fi
     fi
     if [[ -n "${available_version_stable:-}" ]]; then
-      if __eubnt_version_compare "${__unifi_controller_package_version:-}" "ge" "${available_version_stable}"; then
-        versions_to_select+=("${available_version_stable}" "Current Stable Release")
+      if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+        if ! __eubnt_version_compare "${available_version_stable}" "gt" "${__unifi_controller_package_version}"; then
+          add_stable_version=
+        fi
       fi
     fi
-    versions_to_select+=("Custom" "" "Other" "" "Cancel" "")
+    if [[ -n "${add_lts_version:-}" ]]; then
+      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
+    fi
+    if [[ -n "${add_stable_version:-}" ]]; then
+      versions_to_select+=("${available_version_stable}" "   Latest public stable release")
+    fi
+    versions_to_select+=("Other" "   Manually enter a version number" "Early Access" "   Use this to paste Early Access release URLs")
     __eubnt_show_whiptail "menu" "Which UniFi SDN Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"
     if [[ "${selected_version}" = "Cancel" ]]; then
       return 1
     fi
     if [[ "${selected_version}" = "Other" ]]; then
-      local what_version=""
-      while [[ ! $(__eubnt_ubnt_get_product "unifi-controller" "${what_version}") ]]; do
-        __eubnt_get_user_input "What other version (i.e. 5.7 or 5.8.30, 5.4 or later) do you want to install?"
-      done
-      selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_version}")"
-    fi
-  fi
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    if __eubnt_version_compare "${selected_version}" "eq" "${__unifi_controller_package_version}"; then
-      versions_to_install=("${selected_version}")
-    elif __eubnt_version_compare "${selected_version}" "eq" "${__unifi_controller_package_version}"; then
-      local next_version="${__unifi_controller_package_version}"
-      while [[ $(__eubnt_version_compare "${selected_version}" "ge" "${next_version}") ]]; do
-        if [[ "${next_version}" ]]; then
-          next_version="$(__eubnt_ubnt_get_product "unifi-controller" "latest")"
+      local what_other_version=""
+      while [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; do
+        __eubnt_get_user_input "What other version (i.e. 5.7 or 5.8.30) do you want to install?" "what_other_version" "optional"
+        if [[ -z "${what_other_version:-}" ]]; then
+          if ! __eubnt_question_prompt "Do you want to cancel and return to the script?" "return"; then
+            return 1
+          fi
+        else
+          selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_other_version}" || echo "")"
+          if [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; then
+            if ! __eubnt_question_prompt "Version ${what_other_version} isn't available, do you want to try another?" "return"; then
+              return 1
+            fi
+            what_other_version=""
+          fi
         fi
       done
     fi
-  else
-    versions_to_install=("${selected_version}")
-  fi
-  versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
-  for version in "${!versions_to_install[@]}"; do
-    if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
-      return 1
+    if [[ "${selected_version}" = "Beta" ]]; then
+      local what_custom_url=""
+      local what_custom_file=""
+      while [[ ! "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; do
+        __eubnt_get_user_input "Please enter the early access URL to download and install?" "what_custom_url" "optional"
+        if [[ -z "${what_custom_url:-}" ]]; then
+          if ! __eubnt_question_prompt "Do you want to cancel and return to the script?" "return"; then
+            return 1
+          fi
+        else
+          if [[ "${what_custom_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${what_custom_url}"; then
+              selected_version="${what_custom_url}"
+          else
+            if ! __eubnt_question_prompt "The URL is inaccessible or invalid, do you want to try another?" "return"; then
+              return 1
+            fi
+            what_custom_url=""
+          fi
+        fi
+      done
     fi
-  done
+  fi
+  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+    local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | cut --fields 1-2 --delimiter '.')")"
+    if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
+      versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url")")
+    fi
+  fi
+  if [[ "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    versions_to_install+=("$(__eubnt_extract_version_from_url "${selected_version}")|${selected_version}")
+  elif [[ "${selected_version:-}" =~ ${__regex_version_full} ]]; then
+    versions_to_install+=("${selected_version}|$(__eubnt_ubnt_get_product "unifi-controller" "${selected_version}" "url")")
+  fi
+  if [[ ${#versions_to_install[@]} -gt 0 ]]; then
+    versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
+    for version in "${!versions_to_install[@]}"; do
+      if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
+        return 1
+      fi
+    done
+  fi
 }
 
-# Installs the latest minor version for the given major UniFi SDN version
-# $1: The major version number to install
+# Installs the UniFi SDN Controller based on a version number and download URL
+# $1: The full version number to install and URL, example: "5.6.40|https://dl.ubnt.com/unifi/5.6.40/unifi_sysvinit_all.deb"
 # TODO: Try to recover if install fails
 function __eubnt_install_unifi_controller_version()
 {
-  if [[ -n "${1:-}" ]]; then
-    install_this_version="${1}"
-  else
+  if [[ -z "${1:-}" ]]; then
     return 1
   fi
-  __eubnt_show_header "Installing UniFi SDN version ${unifi_updated_version}..."
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    __eubnt_show_warning "Make sure you have a backup!"
-    __eubnt_question_prompt
+  local install_this_version="$(echo "${1}" | cut --fields 1 --delimiter '|')"
+  local install_this_url="$(echo "${1}" | cut --fields 2 --delimiter '|')"
+  if [[ ! "${install_this_version:-}" =~ ${__regex_version_full} ]]; then
+    return 1
   fi
-  if [[ "${__unifi_controller_package_version:-}" = "${install_this_version}" ]]; then
-    __eubnt_show_notice "UniFi SDN version ${__unifi_controller_package_version} is already installed"
-    if ! __eubnt_question_prompt "Do you want to reinstall?" "return" "n"; then
+  if [[ ! "${install_this_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    return 1
+  fi
+  __eubnt_show_header "Installing UniFi SDN Controller ${install_this_version:-}..."
+  __eubnt_initialize_unifi_controller_variables
+  if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]]; then
+    __eubnt_show_warning "Make sure you have a backup!"
+    echo
+    if ! __eubnt_question_prompt "" "return"; then
+      return 1
+    fi
+  fi
+  if __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${install_this_version:-}"; then
+    __eubnt_show_notice "UniFi SDN Controller ${install_this_version} is already installed..."
+    echo
+    if ! __eubnt_question_prompt "Do you want to reinstall it?" "return" "n"; then
+      return 1
+    fi
+  elif __eubnt_version_compare "${__unifi_controller_package_version:-}" "gt" "${install_this_version:-}"; then
+    __eubnt_show_warning "UniFi SDN Controller ${install_this_version} is a previous version..."
+    echo
+    if ! __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       return 1
     fi
   fi
   local release_notes=
-  if __eubnt_ubnt_get_release_notes "${unifi_updated_version}" "release_notes"; then
+  if __eubnt_ubnt_get_release_notes "${install_this_version}" "release_notes"; then
     if __eubnt_question_prompt "Do you want to view the release notes?" "return" "n"; then
       more "${release_notes}"
       __eubnt_question_prompt
@@ -1344,22 +1457,17 @@ function __eubnt_install_unifi_controller_version()
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
   fi
-  echo "unifi unifi/has_backup boolean true" | debconf-set-selections
-  if DEBIAN_FRONTEND=noninteractive apt-get install --yes unifi; then
-    __unifi_version_installed="${unifi_updated_version}"
-    tail --follow /var/log/unifi/server.log --lines=50 | while read -r log_line
-    do
-      if [[ "${log_line}" = *"${unifi_updated_version}"* ]]
-      then
-        __eubnt_show_success "\\n${log_line}\\n"
-        pkill --full tail
-      fi
-    done
-    sleep 1
-  else
-    if [[ -n "${__unifi_version_installed:-}" ]]; then
-      if __eubnt_add_source "http://www.ubnt.com/downloads/unifi/debian unifi-${__unifi_version_installed:0:3} ubiquiti" "100-ubnt-unifi.list" "www\\.ubnt\\.com.*unifi-${__unifi_version_installed:0:3}"; then
-        __eubnt_run_command "apt-get update" "quiet"
+  local unifi_deb_file=""
+  if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
+    if [[ -f "${unifi_deb_file}" ]]; then
+      __eubnt_install_package "binutils"
+      echo "unifi unifi/has_backup boolean true" | debconf-set-selections
+      __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
+      if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
+        __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
+        while ! __eubnt_is_unifi_controller_running; do
+          sleep 3
+        done
       fi
     fi
   fi
@@ -1401,8 +1509,8 @@ function __eubnt_setup_sources() {
     do_apt_update=
   fi
   if [[ "${1:-}" = "mongodb3_4" ]]; then
-    local distro_mongodb_installable_version="$(apt-cache madison mongodb | awk '{print $3}' | sed 's/.*://; s/[-+].*//;' | sort --version-sort | tail --lines=1)"
-    if [[ ! "${distro_mongodb_installable_version}" =~ ${__regex_version_mongodb3_4} ]]; then
+    local distro_mongodb_installable_version="$(apt-cache madison mongodb | sort --version-sort | tail --lines=1 | awk '{print $3}' | sed 's/.*://; s/[-+].*//;')"
+    if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
       local official_mongodb_repo_url=""
       if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || "${__is_mint:-}" ) ]]; then
         local os_version_name_for_official_mongodb_repo="${__os_version_name_ubuntu_equivalent}"
@@ -1421,6 +1529,7 @@ function __eubnt_setup_sources() {
       if [[ -n "${official_mongodb_repo_url:-}" ]]; then
         if __eubnt_add_source "${mongodb_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
           __eubnt_add_key "A15703C6" # MongoDB official package signing key
+          __install_mongodb_package="mongodb-org"
           do_apt_update=true
         fi
       fi
@@ -1469,8 +1578,11 @@ function __eubnt_install_updates() {
   local mongodb_update_available=
   local java_held=
   local mongodb_held=
-  echo
-  if __eubnt_question_prompt "Do you want to install available package upgrades?" "return"; then
+  __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet"
+  if [[ -z $(tail --lines=1 "${__script_log}" | awk '$1>0') ]]; then
+    return
+  fi
+  if __eubnt_question_prompt "Check for and install available package upgrades?" "return"; then
     __eubnt_install_package "unattended-upgrades" || true
     if __eubnt_is_package_installed "${__java_package_installed:-}"; then
       java_update_available=$(apt-cache policy "${__java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
@@ -1540,17 +1652,25 @@ function __eubnt_install_java8() {
 }
 
 # Install MongoDB
-function __eubnt_install_mongodb()
+function __eubnt_install_mongodb3_4()
 {
   if [[ -z "${__mongodb_package_installed:-}" ]]; then
     __eubnt_show_header "Installing MongoDB..."
-    __eubnt_setup_sources "mongodb"
-    if [[ -n "${__is_64:-}" || "${__mongodb_package_installed}" = "mongodb-org-server" ]]; then
-      __eubnt_install_package "mongodb-org"
-    else
-      __eubnt_install_package "mongodb"
-    fi
+    __eubnt_setup_sources "mongodb3_4"
+    __eubnt_install_package "${__install_mongodb_package:-}"
   fi
+}
+
+# Install script dependencies
+function __eubnt_install_dependencies()
+{
+  __eubnt_install_package "apt-transport-https" || true
+  __eubnt_install_package "sudo" || true
+  __eubnt_install_package "curl" || true
+  __eubnt_install_package "net-tools" || true
+  __eubnt_install_package "dnsutils" || true
+  __eubnt_install_package "psmisc" || true
+  __eubnt_install_package "jq" || true
 }
 
 ### Setup OpenSSH
@@ -1570,7 +1690,8 @@ function __eubnt_setup_ssh_server() {
   fi
   if [[ $(dpkg --list | grep "openssh-server") && -f "${__sshd_config}" ]]; then
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
-    __eubnt_show_notice "\\nChecking OpenSSH server settings for recommended changes...\\n"
+    __eubnt_show_notice "Checking OpenSSH server settings for recommended changes..."
+    echo
     if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") ]]; then
       if __eubnt_question_prompt "Change SSH port from the default 22?" "return" "n"; then
         local ssh_port=""
@@ -1622,7 +1743,7 @@ function __eubnt_setup_ssh_server() {
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
-    return 0
+    return 1
   fi
   local source_backports=
   local skip_certbot_questions=
@@ -1633,29 +1754,27 @@ function __eubnt_setup_certbot() {
   local days_to_renewal=
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
-    if [[ ! $(command -v certbot) ]]; then
+    if ! __eubnt_is_command "certbot"; then
       if [[ -n "${__is_ubuntu:-}" ]]; then
-        __setup_source_certbot=true
-        __eubnt_setup_sources
+        if ! __eubnt_setup_sources "certbot"; then
+          return 1
+        fi
       fi
       if [[ "${__os_version_name}" = "jessie" ]]; then
-        __eubnt_run_command "apt-get install --yes --target-release jessie-backports certbot"
+        __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography certbot"
       else
         __eubnt_install_package "certbot"
       fi
     fi
   else
-    return 0
+    return 1
   fi
-  if [[ ! $(command -v certbot) ]]; then
+  if ! __eubnt_is_command "certbot"; then
     echo
     __eubnt_show_warning "Unable to setup certbot!"
     echo
     sleep 3
-    return 0
-  fi
-  if [[ "${__os_version_name}" = "jessie" ]]; then
-    __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography"
+    return 1
   fi
   domain_name=
   if __eubnt_run_command "hostname --fqdn" "return" "domain_name"; then
@@ -1667,10 +1786,10 @@ function __eubnt_setup_certbot() {
     __eubnt_get_user_input "\\nDomain name to use for the UniFi SDN Controller: " "domain_name"
   fi
   resolved_domain_name=$(dig +short "${domain_name}")
-  if [[ "${__machine_ip_address}" != "${resolved_domain_name}" ]]; then
-    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__machine_ip_address}\\n"
+  if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ]]; then
+    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}\\n"
     if ! __eubnt_question_prompt "" "return"; then
-      return 0
+      return 1
     fi
   fi
   days_to_renewal=0
@@ -1757,7 +1876,6 @@ EOF
     # shellcheck disable=SC2086
     if certbot certonly --agree-tos --standalone --preferred-challenges http-01 --http-01-port 80 --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then
       __eubnt_show_success "\\nCertbot succeeded for domain name: ${domain_name}"
-      __unifi_domain_name="${domain_name}"
       sleep 5
     else
       echo
@@ -1792,24 +1910,33 @@ function __eubnt_setup_ufw() {
   __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)...\\n"
   if [[ ! $(dpkg --list "ufw" | grep "^i") || ( $(command -v ufw) && $(ufw status | grep "inactive") ) ]]; then
     if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
-      return 0
+      return 1
     fi
   fi
   __eubnt_install_package "ufw"
+  local ssh_port="22"
+  local have_unifi_ports=
   if [[ -f "${__sshd_config}" ]]; then
     ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
   fi
-  if [[ -n "${unifi_tcp_port_inform:-}" && -n "${unifi_tcp_port_admin:-}" && -n "${unifi_tcp_port_http_portal:-}" && -n "${unifi_tcp_port_https_portal:-}" && -n "${unifi_tcp_port_throughput:-}" && -n "${unifi_udp_port_stun:-}" ]]; then
-    tee "/etc/ufw/applications.d/unifi" &>/dev/null <<EOF
-[unifi]
-title=UniFi SDN Ports
+  __eubnt_initialize_unifi_controller_variables
+  if [[ -n "${__unifi_controller_port_tcp_inform:-}" \
+     && -n "${__unifi_controller_port_tcp_admin:-}" \
+     && -n "${__unifi_controller_port_tcp_portal_http:-}" \
+     && -n "${__unifi_controller_port_tcp_portal_https:-}" \
+     && -n "${__unifi_controller_port_tcp_throughput:-}" \
+     && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
+    have_unifi_ports=true
+    tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
+[unifi-controller]
+title=UniFi SDN Controller Ports
 description=Default ports used by the UniFi SDN Controller
-ports=${unifi_tcp_port_inform},${unifi_tcp_port_admin},${unifi_tcp_port_http_portal},${unifi_tcp_port_https_portal},${unifi_tcp_port_throughput}/tcp|${unifi_udp_port_stun}/udp
+ports=${__unifi_controller_port_tcp_inform},${__unifi_controller_port_tcp_admin},${__unifi_controller_port_tcp_portal_http},${__unifi_controller_port_tcp_portal_https},${__unifi_controller_port_tcp_throughput}/tcp|${__unifi_controller_port_udp_stun}/udp
 
-[unifi-local]
-title=UniFi SDN Ports for Local Discovery
+[unifi-controller-local]
+title=UniFi SDN Controller Ports for Local Discovery
 description=Ports used for discovery of devices on the local network by the UniFi SDN Controller
-ports=${unifi_local_udp_port_discoverable_controller},${unifi_local_udp_port_ap_discovery}/udp
+ports=${__unifi_controller_local_udp_port_discoverable_controller},${__unifi_controller_local_udp_port_ap_discovery}/udp
 EOF
 # End of output to file
   fi
@@ -1825,42 +1952,6 @@ EOF
     __eubnt_run_command "ufw --force reset"
     echo
   fi
-  if __eubnt_question_prompt "Do you want to check if inbound UniFi SDN ports appear to be open?" "return"; then
-    if ufw status | grep --quiet " active"; then
-      __eubnt_run_command "ufw disable"
-    fi
-    __eubnt_show_text "Checking if port probing service is available"
-    local port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-    if [[ -n "${port_probe_url:-}" ]]; then
-      if [[ -n "${ssh_port:-}" ]]; then
-        local unifi_tcp_port_ssh="${ssh_port}"
-      fi
-      local port_to_probe=
-      for var_name in ${!unifi_tcp_port_*}; do
-        port_to_probe="${!var_name}"
-        __eubnt_show_text "Checking port ${port_to_probe}"
-        if ! wget -q -O- "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-          echo
-          __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
-          if __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
-            if ! wget -q -O- "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-              echo
-              __eubnt_show_warning "Port ${port_to_probe} is still not open!\\n"
-              if ! __eubnt_question_prompt "Do you want to proceed anyway?" "return"; then
-                return 0
-              fi
-            else
-              __eubnt_show_success "\\nPort ${port_to_probe} is open!\\n"
-            fi
-          fi
-        else
-          __eubnt_show_success "\\nPort ${port_to_probe} is open!\\n"
-        fi
-      done
-    else
-      __eubnt_show_notice "\\nPort probing service is unavailable, try again later."
-    fi
-  fi
   if [[ -n "${ssh_port:-}" ]]; then
     if __eubnt_question_prompt "Do you want to allow access to SSH from any host?" "return"; then
       __eubnt_run_command "ufw allow ${ssh_port}/tcp"
@@ -1869,27 +1960,35 @@ EOF
     fi
     echo
   fi
-  if [[ "${unifi_tcp_port_inform:-}" && "${unifi_tcp_port_admin:-}" ]]; then
-    __unifi_tcp_port_admin="${unifi_tcp_port_admin}"
+  if [[ -n "${have_unifi_ports:-}" ]]; then
     if __eubnt_question_prompt "Do you want to allow access to the UniFi SDN ports from any host?" "return"; then
-      __eubnt_run_command "ufw allow from any to any app unifi"
+      __eubnt_run_command "ufw allow from any to any app unifi-controller"
     else
-      __eubnt_run_command "ufw --force delete allow from any to any app unifi" "quiet"
+      __eubnt_run_command "ufw --force delete allow from any to any app unifi-controller" "quiet"
     fi
     echo
     if __eubnt_question_prompt "Will this controller discover devices on it's local network?" "return" "n"; then
-      __eubnt_run_command "ufw allow from any to any app unifi-local"
+      __eubnt_run_command "ufw allow from any to any app unifi-controller-local"
     else
-      __eubnt_run_command "ufw --force delete allow from any to any app unifi-local" "quiet"
+      __eubnt_run_command "ufw --force delete allow from any to any app unifi-controller-local" "quiet"
     fi
     echo
   else
-    __eubnt_show_warning "Unable to determine UniFi SDN ports to allow. Is it installed?\\n"
+    __eubnt_show_warning "Unable to determine UniFi SDN Controller ports to allow. Is it installed?\\n"
   fi
   echo "y" | ufw enable >>"${__script_log}"
   __eubnt_run_command "ufw reload"
   __eubnt_show_notice "\\nUpdated UFW status:\\n"
   __eubnt_run_command "ufw status" "foreground"
+  if __eubnt_question_prompt "Do you want to check if ingress TCP ports appear to be accessible?" "return"; then
+    if __eubnt_probe_port "check"; then
+      local port_to_probe=""
+      for var_name in ${!__unifi_controller_port_tcp_*}; do
+        port_to_probe="${!var_name}"
+        __eubnt_probe_port "${port_to_probe}" "skip"
+      done
+    fi
+  fi
   sleep 1
 }
 
@@ -1899,8 +1998,9 @@ EOF
 # Call the various CLI wrapper functions and exits
 function __eubnt_invoke_cli() {
   if [[ -n "${__ubnt_product_command:-}" && -n "${__ubnt_selected_product:-}" ]]; then
-    __ubnt_selected_product="$(echo ${__ubnt_selected_product} | sed 's/-/_/g')"
-    __ubnt_product_command="$(echo ${__ubnt_product_command} | sed 's/-/_/g')"
+    __ubnt_selected_product="$(echo "${__ubnt_selected_product}" | sed 's/-/_/g')"
+    __ubnt_product_command="$(echo "${__ubnt_product_command}" | sed 's/-/_/g')"
+    # shellcheck disable=SC2086,SC2086
     __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__ubnt_product_version:-}" || true
     exit
   fi
@@ -1915,7 +2015,7 @@ function __eubnt_cli_unifi_controller_get_available_version() {
 
 # A wrapper function to get the available UniFi SDN Controller download URL for given version
 function __eubnt_cli_unifi_controller_get_available_download() {
-  if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}" "" "url"; then
+  if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}" "url"; then
     return 1
   fi
 }
@@ -1942,7 +2042,9 @@ function __eubnt_cli_unifi_controller_get_installed_version() {
 # Fix localhost issue on Ubuntu for sudo use
 # Update apt-get and apt-file
 function __eubnt_common_fixes {
-  __eubnt_show_header "Running common fixes..."
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Running common fixes..."
+  fi
   __eubnt_run_command "apt-get install --fix-broken --yes"
   __eubnt_run_command "apt-get autoremove --yes"
   __eubnt_run_command "apt-get clean --yes"
@@ -2010,11 +2112,6 @@ function __eubnt_setup_swap_file() {
 ### Tests
 ##############################################################################
 
-if __eubnt_unifi_controller_mongodb_evals "lts-devices"; then
-  echo "Found LTS devices"
-fi
-exit
-
 ### Execution of script
 ##############################################################################
 
@@ -2029,8 +2126,9 @@ if [[ -z "${__accept_license:-}" ]]; then
   echo
 fi
 __eubnt_show_header "Checking system..."
+__eubnt_install_dependencies
 __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet"
-if ! tail --lines=1 "${__script_log}" | grep --quiet --extended-regexp "${__regex_ip_address}"; then
+if ! tail --lines=2 "${__script_log}" | grep --quiet --extended-regexp "${__regex_ip_address}"; then
   __eubnt_show_error "Unable to resolve ${__ubnt_dl} using the following nameservers: ${__nameservers}"
 else
   __eubnt_show_success "DNS appears to be working!"
@@ -2044,7 +2142,7 @@ __eubnt_show_warning "Disk free space is ${__colors_bold_text}${show_disk_free_s
 if [[ "${__disk_free_space_gb}" -lt ${__recommended_disk_free_space_gb} ]]; then
   __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
 else
-  if [[ "${__disk_free_space_gb}" -ge $(( ${__recommended_disk_free_space_gb} + ${__recommended_swap_total_gb} )) ]]; then
+  if [[ "${__disk_free_space_gb}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
     have_space_for_swap=true
   fi
 fi
@@ -2059,6 +2157,10 @@ if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
   if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?" "return"; then
     __eubnt_setup_swap_file
   fi
+fi
+__eubnt_initialize_unifi_controller_variables
+if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+  __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
 fi
 echo
 __eubnt_show_timer
@@ -2079,13 +2181,15 @@ if [[ -f /var/run/reboot-required ]]; then
     exit 0
   fi
 fi
-__eubnt_install_java8
-__eubnt_install_mongodb
-__eubnt_install_unifi
-__eubnt_setup_ssh_server
-if [[ -n "${__unifi_domain_name:-}" ]]; then
-  __eubnt_setup_certbot
+if __eubnt_install_java8; then
+  if __eubnt_install_mongodb3_4; then
+    if __eubnt_install_unifi_controller; then
+      true
+    fi
+  fi
 fi
-__eubnt_setup_ufw
+__eubnt_setup_ssh_server || true
+__eubnt_setup_certbot || true
+__eubnt_setup_ufw || true
 __eubnt_show_success "\\nDone!\\n"
 sleep 3
