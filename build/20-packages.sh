@@ -38,10 +38,10 @@ function __eubnt_setup_sources() {
     if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
       local official_mongodb_repo_url=""
       if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || "${__is_mint:-}" ) ]]; then
-        local os_version_name_for_official_mongodb_repo="${__os_version_name_ubuntu_equivalent}"
-        if [[ "${__os_version_name_ubuntu_equivalent}" = "precise" ]]; then
+        local os_version_name_for_official_mongodb_repo="${__ubuntu_version_name_to_use_for_repos}"
+        if [[ "${__ubuntu_version_name_to_use_for_repos}" = "precise" ]]; then
           os_version_name_for_official_mongodb_repo="trusty"
-        elif [[ "${__os_version_name_ubuntu_equivalent}" = "bionic" ]]; then
+        elif [[ "${__ubuntu_version_name_to_use_for_repos}" = "bionic" ]]; then
           os_version_name_for_official_mongodb_repo="xenial"
         fi
         official_mongodb_repo_url="http://repo.mongodb.org/apt/ubuntu ${os_version_name_for_official_mongodb_repo}/mongodb-org/3.4 multiverse"
@@ -62,7 +62,7 @@ function __eubnt_setup_sources() {
   elif [[ "${1:-}" = "java8" ]]; then
     local openjdk8_installable_version="$(apt-cache madison openjdk-8-jre-headless | awk '{print $3}' | sed 's/.*://; s/[-+].*//;' | sort --version-sort | tail --lines=1)"
     if [[ ! "${openjdk8_installable_version}" =~ ${__regex_version_java8} ]]; then
-      if __eubnt_add_source "http://ppa.launchpad.net/webupd8team/java/ubuntu ${__os_version_name_ubuntu_equivalent} main" "webupd8team-java.list" "ppa\\.launchpad\\.net.*${__os_version_name_ubuntu_equivalent}.*main"; then
+      if __eubnt_add_source "http://ppa.launchpad.net/webupd8team/java/ubuntu ${__ubuntu_version_name_to_use_for_repos} main" "webupd8team-java.list" "ppa\\.launchpad\\.net.*${__ubuntu_version_name_to_use_for_repos}.*main"; then
         __eubnt_add_key "EEA14886" # WebUpd8 package signing key
         do_apt_update=true
         __install_webupd8_java=true
