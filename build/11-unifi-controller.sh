@@ -268,12 +268,12 @@ function __eubnt_install_unifi_controller_version()
   fi
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
+    __eubnt_show_text "Waiting for UniFi SDN Controller to finish loading..."
+    echo
+    while ! __eubnt_is_unifi_controller_running; do
+      sleep 3
+    done
   fi
-  __eubnt_show_text "Waiting for UniFi SDN Controller to finish loading..."
-  echo
-  while ! __eubnt_is_unifi_controller_running; do
-    sleep 3
-  done
   local unifi_deb_file=""
   if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
     if [[ -f "${unifi_deb_file}" ]]; then
