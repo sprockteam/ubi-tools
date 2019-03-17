@@ -1537,7 +1537,7 @@ function __eubnt_setup_sources() {
         fi
       fi
       if [[ -n "${official_mongodb_repo_url:-}" ]]; then
-        if __eubnt_add_source "${mongodb_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
+        if __eubnt_add_source "${official_mongodb_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
           __eubnt_add_key "A15703C6" # MongoDB official package signing key
           __install_mongodb_package="mongodb-org"
           do_apt_update=true
