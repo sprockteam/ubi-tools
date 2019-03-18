@@ -1778,6 +1778,14 @@ function __eubnt_setup_ssh_server() {
 
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
+  if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+    __eubnt_initialize_unifi_controller_variables
+    if [[ ! -d "${__unifi_controller_data_dir:-}" || ! -f "${__unifi_controller_system_properties:-}" ]]; then
+      return 1
+    fi
+  else
+    return 1
+  fi
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
     return 1
   fi
@@ -1821,9 +1829,11 @@ function __eubnt_setup_certbot() {
   else
     __eubnt_get_user_input "\\nDomain name to use for the UniFi SDN Controller: " "domain_name"
   fi
-  resolved_domain_name=$(dig +short "${domain_name}")
-  if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ]]; then
-    echo; __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}\\n"
+  resolved_domain_name=$(dig +short "${domain_name}" | tail --lines=1)
+  if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && ( ! "${resolved_domain_name:-}" =~ ${__regex_ip_address} || ( "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ) ) ]]; then
+    echo
+    __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}"
+    echo
     if ! __eubnt_question_prompt "" "return"; then
       return 1
     fi
@@ -1846,7 +1856,8 @@ function __eubnt_setup_certbot() {
     email_option="--register-unsafely-without-email"
   fi
   if [[ -n "${domain_name:-}" ]]; then
-    local letsencrypt_scripts_dir=$(mkdir --parents "${__eubnt_dir}/letsencrypt" && echo "${__eubnt_dir}/letsencrypt")
+    __eubnt_initialize_unifi_controller_variables
+    local letsencrypt_scripts_dir=$(mkdir --parents "${__script_dir}/letsencrypt" && echo "${__script_dir}/letsencrypt")
     local pre_hook_script="${letsencrypt_scripts_dir}/pre-hook_${domain_name}.sh"
     local post_hook_script="${letsencrypt_scripts_dir}/post-hook_${domain_name}.sh"
     local letsencrypt_live_dir="${__letsencrypt_dir}/live/${domain_name}"
@@ -1859,7 +1870,7 @@ function __eubnt_setup_certbot() {
 http_process_file="${letsencrypt_scripts_dir}/http_process"
 rm "\${http_process_file}" &>/dev/null
 if netstat -tulpn | grep ":80 " --quiet; then
-  http_process=$(netstat -tulpn | awk '/:80 /{print $7}' | sed 's/[0-9]*\///')
+  http_process=\$(netstat -tulpn | awk '/:80 /{print \$7}' | sed 's/[0-9]*\///')
   service "\${http_process}" stop &>/dev/null
   echo "\${http_process}" >"\${http_process_file}"
 fi
@@ -1872,9 +1883,11 @@ EOF
     tee "${post_hook_script}" &>/dev/null <<EOF
 #!/usr/bin/env bash
 http_process_file="${letsencrypt_scripts_dir}/http_process"
-if [[ -s "\${http_process_file}" ]]; then
-  http_process=$(cat "\${http_process_file}")
-  service "\${http_process}" start &>/dev/null
+if [[ -f "\${http_process_file:-}" ]]; then
+  http_process=\$(cat "\${http_process_file}")
+  if [[ -n "\${http_process:-}" ]]; then
+    service "\${http_process}" start &>/dev/null
+  fi
 fi
 rm "\${http_process_file}" &>/dev/null
 if [[ \$(dpkg --status "ufw" 2>/dev/null | grep "ok installed") && \$(ufw status | grep " active") && ! \$(netstat -tulpn | grep ":80 ") ]]; then
@@ -1883,12 +1896,12 @@ fi
 if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
   if ! md5sum -c ${letsencrypt_fullchain}.md5 &>/dev/null; then
     md5sum ${letsencrypt_fullchain} >${letsencrypt_fullchain}.md5
-    cp ${__unifi_data_dir}/keystore ${__unifi_data_dir}/keystore.backup.\$(date +%s) &>/dev/null
+    cp ${__unifi_controller_data_dir}/keystore ${__unifi_controller_data_dir}/keystore.backup.\$(date +%s) &>/dev/null
     openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letsencrypt_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
-    keytool -delete -alias unifi -keystore ${__unifi_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
-    keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_data_dir}/keystore -srckeystore ${letsencrypt_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
-    echo "unifi.https.ciphers=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_EMPTY_RENEGOTIATION_INFO_SCSVF" | tee -a "${__unifi_system_properties}"
-    echo "unifi.https.sslEnabledProtocols=+TLSv1.1,+TLSv1.2,+SSLv2Hello" | tee -a "${__unifi_system_properties}"
+    keytool -delete -alias unifi -keystore ${__unifi_controller_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
+    keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_controller_data_dir}/keystore -srckeystore ${letsencrypt_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
+    echo "unifi.https.ciphers=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_EMPTY_RENEGOTIATION_INFO_SCSVF" | tee -a "${__unifi_controller_system_properties}"
+    echo "unifi.https.sslEnabledProtocols=+TLSv1.1,+TLSv1.2,+SSLv2Hello" | tee -a "${__unifi_controller_system_properties}"
     service unifi restart &>/dev/null
   fi
 fi
@@ -2194,9 +2207,6 @@ function __eubnt_setup_swap_file() {
 ### Tests
 ##############################################################################
 
-__eubnt_setup_ufw || true
-exit
-
 ### Execution of script
 ##############################################################################
 
@@ -2243,9 +2253,11 @@ if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
     __eubnt_setup_swap_file
   fi
 fi
-__eubnt_initialize_unifi_controller_variables
-if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
-  __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
+if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+  __eubnt_initialize_unifi_controller_variables
+  if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+    __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
+  fi
 fi
 echo
 __eubnt_show_timer

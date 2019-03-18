@@ -1,9 +1,6 @@
 ### Tests
 ##############################################################################
 
-__eubnt_setup_ufw || true
-exit
-
 ### Execution of script
 ##############################################################################
 
@@ -50,9 +47,11 @@ if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
     __eubnt_setup_swap_file
   fi
 fi
-__eubnt_initialize_unifi_controller_variables
-if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
-  __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
+if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+  __eubnt_initialize_unifi_controller_variables
+  if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+    __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
+  fi
 fi
 echo
 __eubnt_show_timer
