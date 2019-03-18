@@ -781,7 +781,7 @@ function __eubnt_probe_port() {
   local break_loop=
   while [[ -z "${break_loop:-}" ]]; do
     __eubnt_show_text "Checking port ${port_to_probe}"
-    if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
+    if ! wget --quiet --output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
       __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall."
       echo
       if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
