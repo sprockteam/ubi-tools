@@ -2241,7 +2241,7 @@ else
 fi
 __apparent_public_ip_address="$(wget --quiet --output-document - "sprocket.link/ip" 2>/dev/null)"
 if [[ -n "${__apparent_public_ip_address:-}" ]]; then
-  __eubnt_show_text "Apparent public IP address: ${__apparent_public_ip_address}"
+  __eubnt_show_text "Apparent public IP address is ${__colors_bold_text}${__apparent_public_ip_address}${__colors_default}"
 fi
 show_disk_free_space="$([[ "${__disk_free_space_gb}" -lt 2 ]] && echo "${__disk_free_space_mb}MB" || echo "${__disk_free_space_gb}GB" )"
 __eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
