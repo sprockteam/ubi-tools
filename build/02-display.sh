@@ -242,6 +242,7 @@ function __eubnt_question_prompt() {
     default_answer="n"
   fi
   if [[ -n "${__quick_mode:-}" ]]; then
+    __eubnt_add_to_log "Quick mode, default answer selected"
     yes_no="${default_answer}"
   fi
   while [[ ! "${yes_no:-}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do

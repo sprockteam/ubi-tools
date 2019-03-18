@@ -371,7 +371,7 @@ if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) &
 fi
 if [[ -z "${__ubnt_selected_product:-}" ]]; then
   __ubnt_selected_product="unifi-controller"
-  __eubnt_add_to_log "Defaulting to selected UBNT product ${__ubnt_selected_product}"
+  __eubnt_add_to_log "Defaulting to selected UBNT product: ${__ubnt_selected_product}"
 fi
 
 ### Error/cleanup handling
@@ -659,6 +659,7 @@ function __eubnt_question_prompt() {
     default_answer="n"
   fi
   if [[ -n "${__quick_mode:-}" ]]; then
+    __eubnt_add_to_log "Quick mode, default answer selected"
     yes_no="${default_answer}"
   fi
   while [[ ! "${yes_no:-}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do

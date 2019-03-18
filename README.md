@@ -7,12 +7,7 @@ A collection of tools to make managing UBNT software easier!
 * End-users who want an easy way to install and manage UBNT software.
 
 ### How to begin
-You can easily run the script the first time like this:
-```console
-wget -qO- sprocket.link/eubntrc | sudo bash
-```
-
-If you'd prefer, you can also run the script this way:
+You can run the script this way:
 ```console
 wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/v0.6.0-rc.1/easy-ubnt.sh -O easy-ubnt.sh
 sudo bash easy-ubnt.sh
