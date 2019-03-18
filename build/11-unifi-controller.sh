@@ -176,7 +176,7 @@ function __eubnt_install_unifi_controller()
         fi
       done
     fi
-    if [[ "${selected_version}" = "Beta" ]]; then
+    if [[ "${selected_version}" = "Early Access" ]]; then
       local what_custom_url=""
       local what_custom_file=""
       while [[ ! "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; do
