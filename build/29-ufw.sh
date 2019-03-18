@@ -85,7 +85,6 @@ EOF
   echo
   if [[ ${#apps_to_allow[@]} -gt 0 ]]; then
     if ! __eubnt_question_prompt "Do you want to setup or make changes to UFW now?" "return"; then
-      return 1
       if ufw status | grep --quiet " active"; then
         if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
           __eubnt_run_command "ufw --force reset"

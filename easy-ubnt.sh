@@ -2037,7 +2037,6 @@ EOF
   echo
   if [[ ${#apps_to_allow[@]} -gt 0 ]]; then
     if ! __eubnt_question_prompt "Do you want to setup or make changes to UFW now?" "return"; then
-      return 1
       if ufw status | grep --quiet " active"; then
         if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
           __eubnt_run_command "ufw --force reset"
@@ -2235,7 +2234,7 @@ if [[ -n "${__apparent_public_ip_address:-}" ]]; then
   __eubnt_show_text "Apparent public IP address: ${__apparent_public_ip_address}"
 fi
 show_disk_free_space="$([[ "${__disk_free_space_gb}" -lt 2 ]] && echo "${__disk_free_space_mb}MB" || echo "${__disk_free_space_gb}GB" )"
-__eubnt_show_warning "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
+__eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
 if [[ "${__disk_free_space_gb}" -lt ${__recommended_disk_free_space_gb} ]]; then
   __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
 else
