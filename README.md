@@ -9,41 +9,36 @@ A collection of tools to make managing UBNT software easier!
 ### How to begin
 You can easily run the script the first time like this:
 ```console
-wget -qO- sprocket.link/eubnt | sudo bash
+wget -qO- sprocket.link/eubntrc | sudo bash
 ```
 
 If you'd prefer, you can also run the script this way:
 ```console
-wget https://github.com/sprockteam/easy-ubnt/raw/master/easy-ubnt.sh -O easy-ubnt.sh
+wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/v0.6.0-rc.1/easy-ubnt.sh -O easy-ubnt.sh
 sudo bash easy-ubnt.sh
-```
-
-After you've run the script the first time, you can run it again anytime like this:
-```console
-sudo eubnt
 ```
 
 ### Script options
 You can automatically skip the license screen by using the -a option.
 ```console
-sudo eubnt -a
+sudo bash easy-ubnt.sh -a
 ```
 
 You can run the script in "quick" mode to bypass most of the question prompts.
 ```console
-sudo eubnt -q
+sudo bash easy-ubnt.sh -q
 ```
 
 **Note:** Even in quick mode, some questions may require a user response.
 
 You can get verbose output of commands during script run by using the -v option.
 ```console
-sudo eubnt -v
+sudo bash easy-ubnt.sh -v
 ```
 
 You can trace each command of the script to see what it's doing by using the -x option.
 ```console
-sudo eubnt -x
+sudo bash easy-ubnt.sh -x
 ```
 
 ### Script Logging
