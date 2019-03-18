@@ -279,13 +279,17 @@ function __eubnt_install_unifi_controller_version()
     if [[ -f "${unifi_deb_file}" ]]; then
       echo
       __eubnt_install_package "binutils"
-      echo "unifi unifi/has_backup boolean true" | debconf-set-selections
-      __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
-      if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
-        __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
-        while ! __eubnt_is_unifi_controller_running; do
-          sleep 3
-        done
+      if __eubnt_install_java8 "noheader"; then
+        if __eubnt_install_mongodb3_4 "noheader"; then
+          echo "unifi unifi/has_backup boolean true" | debconf-set-selections
+          __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
+          if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
+            __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
+            while ! __eubnt_is_unifi_controller_running; do
+              sleep 3
+            done
+          fi
+        fi
       fi
     fi
   fi

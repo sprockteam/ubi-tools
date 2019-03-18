@@ -149,7 +149,9 @@ function __eubnt_install_updates() {
 # Use haveged for better entropy generation from @ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
 function __eubnt_install_java8() {
   if [[ -z "${__java_package_installed:-}" ]]; then
-    __eubnt_show_header "Installing Java..."
+    if [[ "${1:-}" != "noheader" ]]; then
+      __eubnt_show_header "Installing Java..."
+    fi
     __eubnt_setup_sources "java8"
     if [[ -n "${__install_webupd8_java:-}" ]]; then
       echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
@@ -168,7 +170,9 @@ function __eubnt_install_java8() {
       fi
     fi
   fi
-  __eubnt_show_header "Checking extra Java-related packages..."
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Checking extra Java-related packages..."
+  fi
   if __eubnt_run_command "update-alternatives --list java" "quiet"; then
     __eubnt_install_package "jsvc"
     __eubnt_install_package "libcommons-daemon-java"
@@ -180,7 +184,9 @@ function __eubnt_install_java8() {
 function __eubnt_install_mongodb3_4()
 {
   if [[ -z "${__mongodb_package_installed:-}" ]]; then
-    __eubnt_show_header "Installing MongoDB..."
+    if [[ "${1:-}" != "noheader" ]]; then
+      __eubnt_show_header "Installing MongoDB..."
+    fi
     __eubnt_setup_sources "mongodb3_4"
     __eubnt_install_package "${__install_mongodb_package:-}"
   fi

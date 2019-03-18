@@ -1498,13 +1498,17 @@ function __eubnt_install_unifi_controller_version()
     if [[ -f "${unifi_deb_file}" ]]; then
       echo
       __eubnt_install_package "binutils"
-      echo "unifi unifi/has_backup boolean true" | debconf-set-selections
-      __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
-      if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
-        __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
-        while ! __eubnt_is_unifi_controller_running; do
-          sleep 3
-        done
+      if __eubnt_install_java8 "noheader"; then
+        if __eubnt_install_mongodb3_4 "noheader"; then
+          echo "unifi unifi/has_backup boolean true" | debconf-set-selections
+          __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
+          if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
+            __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
+            while ! __eubnt_is_unifi_controller_running; do
+              sleep 3
+            done
+          fi
+        fi
       fi
     fi
   fi
@@ -1661,7 +1665,9 @@ function __eubnt_install_updates() {
 # Use haveged for better entropy generation from @ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
 function __eubnt_install_java8() {
   if [[ -z "${__java_package_installed:-}" ]]; then
-    __eubnt_show_header "Installing Java..."
+    if [[ "${1:-}" != "noheader" ]]; then
+      __eubnt_show_header "Installing Java..."
+    fi
     __eubnt_setup_sources "java8"
     if [[ -n "${__install_webupd8_java:-}" ]]; then
       echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
@@ -1680,7 +1686,9 @@ function __eubnt_install_java8() {
       fi
     fi
   fi
-  __eubnt_show_header "Checking extra Java-related packages..."
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Checking extra Java-related packages..."
+  fi
   if __eubnt_run_command "update-alternatives --list java" "quiet"; then
     __eubnt_install_package "jsvc"
     __eubnt_install_package "libcommons-daemon-java"
@@ -1692,7 +1700,9 @@ function __eubnt_install_java8() {
 function __eubnt_install_mongodb3_4()
 {
   if [[ -z "${__mongodb_package_installed:-}" ]]; then
-    __eubnt_show_header "Installing MongoDB..."
+    if [[ "${1:-}" != "noheader" ]]; then
+      __eubnt_show_header "Installing MongoDB..."
+    fi
     __eubnt_setup_sources "mongodb3_4"
     __eubnt_install_package "${__install_mongodb_package:-}"
   fi
@@ -2279,12 +2289,8 @@ if [[ -f /var/run/reboot-required ]]; then
     exit 0
   fi
 fi
-if __eubnt_install_java8; then
-  if __eubnt_install_mongodb3_4; then
-    if __eubnt_install_unifi_controller; then
-      true
-    fi
-  fi
+if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+  __eubnt_install_unifi_controller || true
 fi
 __eubnt_setup_ssh_server || true
 __eubnt_setup_certbot || true

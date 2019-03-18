@@ -72,12 +72,8 @@ if [[ -f /var/run/reboot-required ]]; then
     exit 0
   fi
 fi
-if __eubnt_install_java8; then
-  if __eubnt_install_mongodb3_4; then
-    if __eubnt_install_unifi_controller; then
-      true
-    fi
-  fi
+if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+  __eubnt_install_unifi_controller || true
 fi
 __eubnt_setup_ssh_server || true
 __eubnt_setup_certbot || true
