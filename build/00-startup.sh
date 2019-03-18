@@ -47,6 +47,7 @@ Sam Sawyer (ssawyer)"
 # https://unix.stackexchange.com/a/490994 - Sort array
 # https://stackoverflow.com/a/13373256 - Extract substring
 # https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
+# https://stackoverflow.com/a/27355109 - Comment lines using sed
 ###
 
 
@@ -213,6 +214,7 @@ __apt_sources_dir="/etc/apt/sources.list.d"
 __sshd_config="/etc/ssh/sshd_config"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
+__regex_port_number='^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'
 __regex_url='^http(s)?:\/\/\S+$'
 __regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
 __regex_number='^[0-9]+$'

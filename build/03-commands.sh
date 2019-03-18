@@ -10,25 +10,32 @@ function __eubnt_is_command() {
   return 1
 }
 
+# Check if something is a valid process running on the system
+# $1: A string with a process name to check
+function __eubnt_is_process() {
+  if [[ -n "${1:-}" && $(pgrep --count ".*${1}") -gt 0 ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # Check if a given port is in use
 # $1: The port number to check
 # $2: The protocol to check, default is "tcp" but could be set to "udp"
 # $3: Optionally specify a process to check
 # $4: If set to "continuous" then run netstat in continuous mode until listening port is found
 function __eubnt_is_port_in_use() {
-  if [[ -n "${1:-}" ]]; then
-    port_to_check="${1}"
-    protocol_to_check="tcp"
-    process_to_check=""
+  if [[ "${1:-}" =~ ${__regex_port_number} ]]; then
+    local port_to_check="${1}"
+    local protocol_to_check="tcp"
+    local process_to_check=""
     if [[ -n "${2:-}" && "${2}" = "udp" ]]; then
       protocol_to_check="udp"
     fi
-    if [[ -n "${3:-}" ]]; then
-      if __eubnt_is_command "${3}"; then
-        process_to_check=".*${3}"
-      fi
+    if __eubnt_is_process "${3:-}"; then
+      process_to_check=".*${3}"
     fi
-    grep_check="^${protocol_to_check}.*:${port_to_check} ${process_to_check}"
+    local grep_check="^${protocol_to_check}.*:${port_to_check} ${process_to_check}"
     if [[ "${4:-}" = "continuous" ]]; then
       if netstat --listening --numeric --programs --${protocol_to_check} --continous | grep --line-buffer --quiet "${grep_check}"; then
         return 0
@@ -43,35 +50,31 @@ function __eubnt_is_port_in_use() {
 }
 
 # Try to check if a given TCP port is open and accessible from the Internet
-# $1: The TCP port number to check, if set to "check" then just check if port probing service is available
-# $2: If set to "skip" then skip the check if the port probing service is available
+# $1: The TCP port number to check, if set to "available" then just check if port probing service is available
 function __eubnt_probe_port() {
-  local return_code=1
-  if [[ -n "${1:-}" ]]; then
-    local port_to_probe="${1}"
-    local port_probe_url=""
-  else
-    __eubnt_show_warning "No port given at $(caller)"
+  if [[ ! "${1:-}" =~ ${__regex_port_number} && "${1:-}" != "available" ]]; then
     return 1
   fi
-  if [[ "${2:-}" = "skip" ]]; then
-    __eubnt_show_text "Checking if port probing service is available"
-    port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-    if [[ -z "${port_probe_url:-}" ]]; then
-      __eubnt_show_notice "Port probing service is unavailable, try again later."
-      sleep 1.5
+  local port_probe_url="https://www.grc.com/x/portprobe="
+  local port_to_probe="${1}"
+  if [[ "${port_to_probe}" = "available" ]]; then
+    if ! wget --quiet --output-document - "${port_probe_url}80" | grep --quiet "World Wide Web HTTP"; then
       return 2
+    else
+      return 0
     fi
   fi
   if ! __eubnt_is_port_in_use "${port_to_probe}"; then
     nc -l "${port_to_probe}" &
     local listener_pid=$!
   fi
+  local return_code=1
   local break_loop=
   while [[ -z "${break_loop:-}" ]]; do
     __eubnt_show_text "Checking port ${port_to_probe}"
     if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
+      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall."
+      echo
       if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
         break_loop=true
       fi
@@ -303,6 +306,23 @@ function __eubnt_add_source() {
       __eubnt_add_to_log "Skipping add source for ${1}"
       return 0
     fi
+  fi
+  return 1
+}
+
+# Remove a source list that contains a string or matches a name
+# $1: The string or file name to search for in the source lists
+#     If set to a value ending in ".list" then search for a filename
+#     If anything else, then search for a string in the list contents
+function __eubnt_remove_source() {
+  if [[ -n "${1:-}" && "${1:-}" = *".list" ]]; then
+    find /etc/apt -name "*${1}" -exec mv --force {} {}.bak \;
+    __eubnt_run_command "apt-get update"
+    return 0
+  elif [[ -n "${1:-}" ]]; then
+    find /etc/apt -name "*.list" -exec sed -i "\|${1}|s|^|#|g" {} \;
+    __eubnt_run_command "apt-get update"
+    return 0
   fi
   return 1
 }

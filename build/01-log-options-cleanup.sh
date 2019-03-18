@@ -128,6 +128,10 @@ done
 if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
   __eubnt_show_help
 fi
+if [[ -z "${__ubnt_selected_product:-}" ]]; then
+  __ubnt_selected_product="unifi-controller"
+  __eubnt_add_to_log "Defaulting to selected UBNT product ${__ubnt_selected_product}"
+fi
 
 ### Error/cleanup handling
 ##############################################################################

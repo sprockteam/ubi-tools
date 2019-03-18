@@ -146,11 +146,11 @@ function __eubnt_install_unifi_controller()
         fi
       fi
     fi
-    if [[ -n "${add_lts_version:-}" ]]; then
-      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
-    fi
     if [[ -n "${add_stable_version:-}" ]]; then
       versions_to_select+=("${available_version_stable}" "   Latest public stable release")
+    fi
+    if [[ -n "${add_lts_version:-}" ]]; then
+      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
     fi
     versions_to_select+=("Other" "   Manually enter a version number" "Early Access" "   Use this to paste Early Access release URLs")
     __eubnt_show_whiptail "menu" "Which UniFi SDN Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"

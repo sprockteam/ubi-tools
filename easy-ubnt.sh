@@ -47,6 +47,7 @@ Sam Sawyer (ssawyer)"
 # https://unix.stackexchange.com/a/490994 - Sort array
 # https://stackoverflow.com/a/13373256 - Extract substring
 # https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
+# https://stackoverflow.com/a/27355109 - Comment lines using sed
 ###
 
 
@@ -213,6 +214,7 @@ __apt_sources_dir="/etc/apt/sources.list.d"
 __sshd_config="/etc/ssh/sshd_config"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
+__regex_port_number='^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'
 __regex_url='^http(s)?:\/\/\S+$'
 __regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
 __regex_number='^[0-9]+$'
@@ -366,6 +368,10 @@ while getopts ":c:i:p:adfhqvx" options; do
 done
 if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
   __eubnt_show_help
+fi
+if [[ -z "${__ubnt_selected_product:-}" ]]; then
+  __ubnt_selected_product="unifi-controller"
+  __eubnt_add_to_log "Defaulting to selected UBNT product ${__ubnt_selected_product}"
 fi
 
 ### Error/cleanup handling
@@ -712,25 +718,32 @@ function __eubnt_is_command() {
   return 1
 }
 
+# Check if something is a valid process running on the system
+# $1: A string with a process name to check
+function __eubnt_is_process() {
+  if [[ -n "${1:-}" && $(pgrep --count ".*${1}") -gt 0 ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # Check if a given port is in use
 # $1: The port number to check
 # $2: The protocol to check, default is "tcp" but could be set to "udp"
 # $3: Optionally specify a process to check
 # $4: If set to "continuous" then run netstat in continuous mode until listening port is found
 function __eubnt_is_port_in_use() {
-  if [[ -n "${1:-}" ]]; then
-    port_to_check="${1}"
-    protocol_to_check="tcp"
-    process_to_check=""
+  if [[ "${1:-}" =~ ${__regex_port_number} ]]; then
+    local port_to_check="${1}"
+    local protocol_to_check="tcp"
+    local process_to_check=""
     if [[ -n "${2:-}" && "${2}" = "udp" ]]; then
       protocol_to_check="udp"
     fi
-    if [[ -n "${3:-}" ]]; then
-      if __eubnt_is_command "${3}"; then
-        process_to_check=".*${3}"
-      fi
+    if __eubnt_is_process "${3:-}"; then
+      process_to_check=".*${3}"
     fi
-    grep_check="^${protocol_to_check}.*:${port_to_check} ${process_to_check}"
+    local grep_check="^${protocol_to_check}.*:${port_to_check} ${process_to_check}"
     if [[ "${4:-}" = "continuous" ]]; then
       if netstat --listening --numeric --programs --${protocol_to_check} --continous | grep --line-buffer --quiet "${grep_check}"; then
         return 0
@@ -745,35 +758,31 @@ function __eubnt_is_port_in_use() {
 }
 
 # Try to check if a given TCP port is open and accessible from the Internet
-# $1: The TCP port number to check, if set to "check" then just check if port probing service is available
-# $2: If set to "skip" then skip the check if the port probing service is available
+# $1: The TCP port number to check, if set to "available" then just check if port probing service is available
 function __eubnt_probe_port() {
-  local return_code=1
-  if [[ -n "${1:-}" ]]; then
-    local port_to_probe="${1}"
-    local port_probe_url=""
-  else
-    __eubnt_show_warning "No port given at $(caller)"
+  if [[ ! "${1:-}" =~ ${__regex_port_number} && "${1:-}" != "available" ]]; then
     return 1
   fi
-  if [[ "${2:-}" = "skip" ]]; then
-    __eubnt_show_text "Checking if port probing service is available"
-    port_probe_url=$(wget --quiet --output-document - "https://www.grc.com/x/portprobe=80" | grep --quiet "World Wide Web HTTP" && echo "https://www.grc.com/x/portprobe=")
-    if [[ -z "${port_probe_url:-}" ]]; then
-      __eubnt_show_notice "Port probing service is unavailable, try again later."
-      sleep 1.5
+  local port_probe_url="https://www.grc.com/x/portprobe="
+  local port_to_probe="${1}"
+  if [[ "${port_to_probe}" = "available" ]]; then
+    if ! wget --quiet --output-document - "${port_probe_url}80" | grep --quiet "World Wide Web HTTP"; then
       return 2
+    else
+      return 0
     fi
   fi
   if ! __eubnt_is_port_in_use "${port_to_probe}"; then
     nc -l "${port_to_probe}" &
     local listener_pid=$!
   fi
+  local return_code=1
   local break_loop=
   while [[ -z "${break_loop:-}" ]]; do
     __eubnt_show_text "Checking port ${port_to_probe}"
     if ! wget --quiet -output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
-      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall.\\n"
+      __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall."
+      echo
       if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
         break_loop=true
       fi
@@ -1005,6 +1014,23 @@ function __eubnt_add_source() {
       __eubnt_add_to_log "Skipping add source for ${1}"
       return 0
     fi
+  fi
+  return 1
+}
+
+# Remove a source list that contains a string or matches a name
+# $1: The string or file name to search for in the source lists
+#     If set to a value ending in ".list" then search for a filename
+#     If anything else, then search for a string in the list contents
+function __eubnt_remove_source() {
+  if [[ -n "${1:-}" && "${1:-}" = *".list" ]]; then
+    find /etc/apt -name "*${1}" -exec mv --force {} {}.bak \;
+    __eubnt_run_command "apt-get update"
+    return 0
+  elif [[ -n "${1:-}" ]]; then
+    find /etc/apt -name "*.list" -exec sed -i "\|${1}|s|^|#|g" {} \;
+    __eubnt_run_command "apt-get update"
+    return 0
   fi
   return 1
 }
@@ -1338,11 +1364,11 @@ function __eubnt_install_unifi_controller()
         fi
       fi
     fi
-    if [[ -n "${add_lts_version:-}" ]]; then
-      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
-    fi
     if [[ -n "${add_stable_version:-}" ]]; then
       versions_to_select+=("${available_version_stable}" "   Latest public stable release")
+    fi
+    if [[ -n "${add_lts_version:-}" ]]; then
+      versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
     fi
     versions_to_select+=("Other" "   Manually enter a version number" "Early Access" "   Use this to paste Early Access release URLs")
     __eubnt_show_whiptail "menu" "Which UniFi SDN Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"
@@ -1913,90 +1939,135 @@ EOF
 ### Setup UFW
 ##############################################################################
 
+# Loops through comma separated list of IP address to allow as hosts to UFW app rules
+# $1: A string matching to the name of a UFW app
+# $2: A string containing a comma separated list of IP address or networks
+function __eubnt_allow_hosts_ufw_app() {
+  if [[ -n "${1:-}" && -n "${2:-}" ]]; then
+    local allowed_host=""
+    local allowed_app="${1}"
+    IFS=',' read -r -a host_addresses <<< "${2}"
+    for host_address in "${!host_addresses[@]}"; do
+      allowed_host="${host_addresses[$host_address]}"
+      if [[ "${allowed_host}" =~ ${__regex_ip_address} ]]; then
+        __eubnt_run_command "ufw allow from ${allowed_host} to any app ${allowed_app}"
+      fi
+    done
+    return 0
+  fi
+  return 1
+}
+
 # Install and setup UFW
 # Adds an app profile that includes all UniFi SDN ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
-  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)...\\n"
-  if [[ ! $(dpkg --list "ufw" | grep "^i") || ( $(command -v ufw) && $(ufw status | grep "inactive") ) ]]; then
-    if ! __eubnt_question_prompt "Do you want to use UFW?" "return"; then
+  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
+  if ! __eubnt_is_package_installed "ufw"; then
+    if ! __eubnt_question_prompt "Do you want to install UFW?" "return"; then
       return 1
+    else
+      if ! __eubnt_install_package "ufw"; then
+        return 1
+      fi
     fi
   fi
-  __eubnt_install_package "ufw"
-  local ssh_port="22"
-  local have_unifi_ports=
-  if [[ -f "${__sshd_config}" ]]; then
-    ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
-    __eubnt_run_command "sed -i 's|^ports=.*$|ports=${ssh_port}/tcp|' /etc/ufw/applications.d/openssh-server" "quiet"
+  declare -a apps_to_allow=()
+  if __eubnt_is_process "sshd" && [[ -f "${__sshd_config:-}" ]]; then
+    local ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+    sed -i "s|^ports=.*|ports=${ssh_port}/tcp|" "/etc/ufw/applications.d/openssh-server"
+    apps_to_allow+=("OpenSSH")
   fi
-  __eubnt_initialize_unifi_controller_variables
-  if [[ -n "${__unifi_controller_port_tcp_inform:-}" \
-     && -n "${__unifi_controller_port_tcp_admin:-}" \
-     && -n "${__unifi_controller_port_tcp_portal_http:-}" \
-     && -n "${__unifi_controller_port_tcp_portal_https:-}" \
-     && -n "${__unifi_controller_port_tcp_throughput:-}" \
-     && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
-    have_unifi_ports=true
-    tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
-[UniFi_Controller]
-title=UniFi SDN Controller Ports
-description=Default ports used by the UniFi SDN Controller
-ports=${__unifi_controller_port_tcp_inform},${__unifi_controller_port_tcp_admin},${__unifi_controller_port_tcp_portal_http},${__unifi_controller_port_tcp_portal_https},${__unifi_controller_port_tcp_throughput}/tcp|${__unifi_controller_port_udp_stun}/udp
+  if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+    __eubnt_initialize_unifi_controller_variables
+    if [[ -n "${__unifi_controller_port_tcp_inform:-}" \
+       && -n "${__unifi_controller_port_tcp_admin:-}" \
+       && -n "${__unifi_controller_port_tcp_portal_http:-}" \
+       && -n "${__unifi_controller_port_tcp_portal_https:-}" \
+       && -n "${__unifi_controller_port_tcp_throughput:-}" \
+       && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
+      apps_to_allow+=("UniFi-Controller")
+      tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
+[UniFi-Controller-Inform]
+title=UniFi SDN Controller Inform and STUN
+description=TCP and UDP ports used to add devices to the controller and allow for remote terminal access
+ports=${__unifi_controller_port_tcp_inform}/tcp|${__unifi_controller_port_udp_stun}/udp
 
-[UniFi_Controller_Local_Discovery]
-title=UniFi SDN Controller Ports for Local Discovery
-description=Ports used for discovery of devices on the local network by the UniFi SDN Controller
+[UniFi-Controller-Admin]
+title=UniFi SDN Controller Admin
+description=TCP port used to login and administer the controller
+ports=${__unifi_controller_port_tcp_admin}/tcp
+
+[UniFi-Controller-Speed]
+title=UniFi SDN Controller Speed
+description=TCP port used to test throughput from the mobile app to the controller
+ports=${__unifi_controller_port_tcp_throughput}/tcp
+
+[UniFi-Controller-Portal]
+title=UniFi SDN Controller Portal Access
+description=TCP ports used to allow for guest portal access
+ports=${__unifi_controller_port_tcp_portal_http},${__unifi_controller_port_tcp_portal_https}/tcp
+
+[UniFi-Controller-Local]
+title=UniFi SDN Controller Local Discovery
+description=UDP ports used for discovery of devices on the local (layer 2) network, not recommended for cloud controllers
 ports=${__unifi_controller_local_udp_port_discoverable_controller},${__unifi_controller_local_udp_port_ap_discovery}/udp
 EOF
 # End of output to file
+    fi
   fi
-  __eubnt_show_notice "\\nCurrent UFW status:\\n"
-  __eubnt_run_command "ufw status" "foreground"
+  __eubnt_show_notice "Current UFW status:"
   echo
-  if ufw status | grep --quiet " active"; then
-    if ! __eubnt_question_prompt "Do you want to make changes to your UFW rules?" "return" "n"; then
-      return 0
+  __eubnt_run_command "ufw app update all" "quiet"
+  __eubnt_run_command "ufw status verbose" "foreground"
+  echo
+  if [[ ${#apps_to_allow[@]} -gt 0 ]]; then
+    if ! __eubnt_question_prompt "Do you want to setup or make changes to UFW now?" "return"; then
+      return 1
     fi
-  fi
-  if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
-    __eubnt_run_command "ufw --force reset"
-    echo
-  fi
-  if [[ -n "${ssh_port:-}" ]]; then
-    if __eubnt_question_prompt "Do you want to allow access to SSH from any host?" "return"; then
-      __eubnt_run_command "ufw allow OpenSSH"
-    else
-      __eubnt_run_command "ufw --force delete allow OpenSSH" "quiet"
+    if ufw status | grep --quiet " active"; then
+      if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "n"; then
+        __eubnt_run_command "ufw --force reset"
+      fi
     fi
+    local hosts_to_allow=""
+    local apps_to_check="$(IFS=$'|'; echo "${apps_to_allow[*]}")"
+    declare -a app_list=($(ufw app list | grep --extended-regexp "${apps_to_check}" | awk '{print $1}'))
+    #IFS=$'\n' read -r -a app_list <<< "${matching_ufw_apps}"
+    for app_name in "${!app_list[@]}"; do
+      allowed_app="${app_list[$app_name]}"
+      echo
+      __eubnt_run_command "ufw app info ${allowed_app}" "foreground"
+      echo
+      if __eubnt_question_prompt "Do you want to allow access to these ports?" "return" "n"; then
+        hosts_to_allow=""
+        echo
+        __eubnt_get_user_input "IP(s) to allow, separated by commas, default is 'any': " "hosts_to_allow" "optional"
+        echo
+        if [[ -z "${hosts_to_allow:-}" ]]; then
+          __eubnt_run_command "ufw allow from any to any app ${allowed_app}"
+        else
+          if __eubnt_allow_hosts_ufw_app "${allowed_app}" "${hosts_to_allow}"; then
+            hosts_to_allow=""
+          fi
+        fi
+      else
+        __eubnt_run_command "ufw --force delete allow ${allowed_app}" "quiet"
+      fi
+    done
+    echo "y" | ufw enable >>"${__script_log}"
+    __eubnt_run_command "ufw reload"
     echo
+    __eubnt_show_notice "Updated UFW status:"
+    echo
+    __eubnt_run_command "ufw status verbose" "foreground"
   fi
-  if [[ -n "${have_unifi_ports:-}" ]]; then
-    if __eubnt_question_prompt "Do you want to allow access to the UniFi SDN ports from any host?" "return"; then
-      __eubnt_run_command "ufw allow from any to any app UniFi_Controller"
-    else
-      __eubnt_run_command "ufw --force delete allow from any to any app UniFi_Controller" "quiet"
-    fi
-    echo
-    if __eubnt_question_prompt "Will this controller discover devices on it's local network?" "return" "n"; then
-      __eubnt_run_command "ufw allow from any to any app UniFi_Controller_Local_Discovery"
-    else
-      __eubnt_run_command "ufw --force delete allow from any to any app UniFi_Controller_Local_Discovery" "quiet"
-    fi
-    echo
-  else
-    __eubnt_show_warning "Unable to find configured UniFi SDN Controller ports. Is it installed?\\n"
-  fi
-  echo "y" | ufw enable >>"${__script_log}"
-  __eubnt_run_command "ufw reload"
-  __eubnt_show_notice "\\nUpdated UFW status:\\n"
-  __eubnt_run_command "ufw status" "foreground"
-  if __eubnt_question_prompt "Do you want to check if ingress TCP ports appear to be accessible?" "return"; then
-    if __eubnt_probe_port "check"; then
+  if __eubnt_probe_port "available"; then
+    if __eubnt_question_prompt "Do you want to check if TCP ports appear to be accessible?" "return"; then
       local port_to_probe=""
       for var_name in ${!__unifi_controller_port_tcp_*}; do
         port_to_probe="${!var_name}"
-        __eubnt_probe_port "${port_to_probe}" "skip"
+        __eubnt_probe_port "${port_to_probe}"
       done
     fi
   fi
@@ -2122,6 +2193,9 @@ function __eubnt_setup_swap_file() {
 
 ### Tests
 ##############################################################################
+
+__eubnt_setup_ufw || true
+exit
 
 ### Execution of script
 ##############################################################################
