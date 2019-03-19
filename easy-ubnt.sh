@@ -72,16 +72,16 @@ if [ ! "$BASH_VERSION" ]; then
   exit 1
 fi
 
+# As of now, this script is designed to run on Debian-based distributions
+if ! command -v apt-get &>/dev/null; then
+  echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
+  exit 1
+fi
+
 # Root or sudo privilege is needed to install things and make system changes
 # TODO: Only run commands as root when needed?
 if [[ $(id --user) -ne 0 ]]; then
   echo -e "\\nStartup failed! Please run this script as root or use sudo\\n"
-  exit 1
-fi
-
-# As of now, this script is designed to run on Debian-based distributions
-if ! command -v apt-get &>/dev/null; then
-  echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
   exit 1
 fi
 
@@ -319,9 +319,6 @@ while getopts ":c:d:i:p:afhqvx" options; do
       else
         __eubnt_show_help
       fi;;
-    f)
-      __force_fetch=true
-      __eubnt_add_to_log "Command line option: forcing fetch of code update";;
     h|\?)
       __eubnt_show_help;;
     i)

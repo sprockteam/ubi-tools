@@ -78,9 +78,6 @@ while getopts ":c:d:i:p:afhqvx" options; do
       else
         __eubnt_show_help
       fi;;
-    f)
-      __force_fetch=true
-      __eubnt_add_to_log "Command line option: forcing fetch of code update";;
     h|\?)
       __eubnt_show_help;;
     i)

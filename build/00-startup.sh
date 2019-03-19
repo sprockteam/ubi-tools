@@ -72,16 +72,16 @@ if [ ! "$BASH_VERSION" ]; then
   exit 1
 fi
 
+# As of now, this script is designed to run on Debian-based distributions
+if ! command -v apt-get &>/dev/null; then
+  echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
+  exit 1
+fi
+
 # Root or sudo privilege is needed to install things and make system changes
 # TODO: Only run commands as root when needed?
 if [[ $(id --user) -ne 0 ]]; then
   echo -e "\\nStartup failed! Please run this script as root or use sudo\\n"
-  exit 1
-fi
-
-# As of now, this script is designed to run on Debian-based distributions
-if ! command -v apt-get &>/dev/null; then
-  echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
   exit 1
 fi
 
