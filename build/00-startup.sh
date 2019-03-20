@@ -8,7 +8,7 @@
 # MIT License
 # Copyright (c) 2018-2019 SprockTech, LLC and contributors
 __script_title="Easy UBNT"
-__script_version="v0.6.0"
+__script_version="v0.6.1"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Frank Gabriel (Frankedinven)
