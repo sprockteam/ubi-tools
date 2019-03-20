@@ -321,7 +321,8 @@ while getopts ":c:d:i:p:afhqvx" options; do
     h|\?)
       __eubnt_show_help;;
     i)
-      if [[ -n "${OPTARG:-}" && ( "${OPTARG:-}" =~ ${__regex_version_full} || "${OPTARG:-}" =~ ${__regex_version_major_minor} ) ]]; then
+      if [[ -n "${OPTARG:-}" && ( "${OPTARG:-}" = "stable" || \
+         ( "${OPTARG:-}" =~ ${__regex_version_full} || "${OPTARG:-}" =~ ${__regex_version_major_minor} ) ) ]]; then
         __ubnt_product_version="${OPTARG}"
         __eubnt_add_to_log "Command line option: specified UBNT product version ${__ubnt_product_version}"
       else
