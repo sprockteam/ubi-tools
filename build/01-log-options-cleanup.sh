@@ -37,27 +37,6 @@ function __eubnt_echo_and_log() {
 ### Parse commandline options
 ##############################################################################
 
-# Display basic usage information and exit
-function __eubnt_show_help() {
-  echo -e "
-  -a          Accept and skip the license agreement
-  -c          Command to issue to product, used with -p
-              Currently supported commands:
-              'archive_all_alerts'
-  -d [arg]    Specify what domain name (FQDN) to use in the script
-  -h          Show this help screen
-  -i [arg]    Specify a version to install, used with -p
-              Examples: '5.9.29', 'stable, '5.7'
-  -p [arg]    Specify which UBNT product to administer
-              Currently supported products:
-              'unifi-controller'
-  -u          Skip UFW setup
-  -q          Run the script in quick mode, accepting all default answers
-  -v          Enable verbose screen output
-  -x          Enable script execution tracing\\n"
-  exit 1
-}
-
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
 while getopts ":c:d:i:p:afhquvx" options; do

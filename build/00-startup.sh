@@ -8,6 +8,8 @@
 # MIT License
 # Copyright (c) 2018-2019 SprockTech, LLC and contributors
 __script_title="Easy UBNT"
+__script_name="easy-ubnt"
+__script_name_short="eubnt"
 __script_version="v0.6.1"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
@@ -77,12 +79,38 @@ if ! command -v apt-get &>/dev/null; then
   echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
   exit 1
 fi
+# Display basic usage information and exit
+function __eubnt_show_help() {
+  echo -e "
+  Note:
+  This script currently requires root access.
+
+  Usage:
+  sudo bash ${__script_name}.sh [options]
+
+  Options:
+  -a          Accept and skip the license agreement
+  -c          Command to issue to product, used with -p
+              Currently supported commands:
+              'archive_all_alerts'
+  -d [arg]    Specify what domain name (FQDN) to use in the script
+  -h          Show this help screen
+  -i [arg]    Specify a version to install, used with -p
+              Examples: '5.9.29', 'stable, '5.7'
+  -p [arg]    Specify which UBNT product to administer
+              Currently supported products:
+              'unifi-controller'
+  -u          Skip UFW setup
+  -q          Run the script in quick mode, accepting all default answers
+  -v          Enable verbose screen output
+  -x          Enable script execution tracing\\n"
+  exit 1
+}
 
 # Root or sudo privilege is needed to install things and make system changes
 # TODO: Only run commands as root when needed?
 if [[ $(id --user) -ne 0 ]]; then
-  echo -e "\\nStartup failed! Please run this script as root or use sudo\\n"
-  exit 1
+  __eubnt_show_help
 fi
 
 # This script is for i386, amd64, armhf and arm64
@@ -111,8 +139,6 @@ __script_check_for_updates=
 __script_setup_executable=
 __script_is_piped="$(tty --silent && echo -n || echo -n true)"
 __script_time="$(date +%s)"
-__script_name="easy-ubnt"
-__script_name_short="eubnt"
 __script_git_url="https://github.com/sprockteam/easy-ubnt.git"
 __script_git_branch="master"
 __script_git_raw_content="https://github.com/sprockteam/easy-ubnt/raw/${__script_git_branch}"
