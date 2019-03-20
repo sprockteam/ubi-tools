@@ -876,6 +876,10 @@ function __eubnt_run_command() {
   if [[ "${full_command[0]}" != "echo" ]]; then
     __eubnt_add_to_log "${1}"
   fi
+  local command_display="${1}"
+  if [[ "${#1}" -gt 60 ]]; then
+    command_display="${1:0:60}..."
+  fi
   if [[ ( -n "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
     "${full_command[@]}" | tee -a "${__script_log}"
     command_return=$?
@@ -893,7 +897,7 @@ function __eubnt_run_command() {
   if [[ -n "${background_pid:-}" ]]; then
     local i=0
     while [[ -d /proc/$background_pid ]]; do
-      echo -e -n "\\rRunning ${1} [${__spinner:i++%${#__spinner}:1}]"
+      echo -e -n "\\rRunning ${command_display} [${__spinner:i++%${#__spinner}:1}]"
       sleep 0.5
       if [[ $i -gt 360 ]]; then
         break
@@ -903,9 +907,9 @@ function __eubnt_run_command() {
     wait $background_pid
     command_return=$?
     if [[ ${command_return} -gt 0 ]]; then
-      __eubnt_echo_and_log "\\rRunning ${1} [${__failed_mark}]\\n"
+      __eubnt_echo_and_log "\\rRunning ${command_display} [${__failed_mark}]\\n"
     else
-      __eubnt_echo_and_log "\\rRunning ${1} [${__completed_mark}]\\n"
+      __eubnt_echo_and_log "\\rRunning ${command_display} [${__completed_mark}]\\n"
     fi
   fi
   if [[ "${2:-}" = "return" && -n "${3:-}" && -e "${command_output:-}" && -s "${command_output:-}" && ${command_return} -eq 0 ]]; then
