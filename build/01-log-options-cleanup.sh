@@ -44,11 +44,10 @@ function __eubnt_show_help() {
   -c          Command to issue to product, used with -p
               Currently supported commands:
               'archive_all_alerts'
-  -d          Specify what domain name (FQDN) to use in the script
+  -d [arg]    Specify what domain name (FQDN) to use in the script
   -h          Show this help screen
   -i [arg]    Specify a version to install, used with -p
-              Can be a version number or the keywords 'beta', 'candidate' or 'stable'
-              Examples: '5.9.29', 'stable, 'beta'
+              Examples: '5.9.29', 'stable, '5.7'
   -p [arg]    Specify which UBNT product to administer
               Currently supported products:
               'unifi-controller'
