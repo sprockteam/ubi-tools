@@ -51,7 +51,7 @@ function __eubnt_setup_certbot() {
   fi
   if [[ -z "${__quick_mode:-}" ]]; then
     __eubnt_get_user_input "Domain name to use (${domain_name:-}): " "domain_name" "optional"
-    resolved_domain_name=$(dig +short "${domain_name}" | tail --lines=1)
+    resolved_domain_name=$(dig +short "${domain_name}" @8.8.8.8 | tail --lines=1)
     if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && ( ! "${resolved_domain_name:-}" =~ ${__regex_ip_address} || ( "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ) ) ]]; then
       echo
       __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}"
