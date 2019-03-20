@@ -154,11 +154,13 @@ function __eubnt_run_command() {
         found_package="$(echo "${found_package}" | head --lines=1)"
         if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
           if ! __eubnt_install_package "${found_package}"; then
-            __eubnt_show_error "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+            __eubnt_show_warning "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+            return 1
           fi
         fi
       else
-        __eubnt_show_error "Unknown command ${unknown_command} at $(caller)"
+        __eubnt_show_warning "Unknown command ${unknown_command} at $(caller)"
+        return 1
       fi
     fi
   fi
