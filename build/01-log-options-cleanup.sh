@@ -51,7 +51,6 @@ function __eubnt_show_help() {
   -p [arg]    Specify which UBNT product to administer
               Currently supported products:
               'unifi-controller'
-  -u          Skip UFW setup
   -q          Run the script in quick mode, accepting all default answers
   -v          Enable verbose screen output
   -x          Enable script execution tracing\\n"
@@ -60,7 +59,7 @@ function __eubnt_show_help() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:i:p:afhquvx" options; do
+while getopts ":c:d:i:p:afhqvx" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -109,9 +108,6 @@ while getopts ":c:d:i:p:afhquvx" options; do
     q)
       __quick_mode=true
       __eubnt_add_to_log "Command line option: enabled quick mode";;
-    u)
-      __ufw_skip=true
-      __eubnt_add_to_log "Command line option: skip UFW setup";;
     v)
       __verbose_output=true
       __eubnt_add_to_log "Command line option: enabled verbose mode";;
