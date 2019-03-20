@@ -1987,6 +1987,9 @@ function __eubnt_allow_hosts_ufw_app() {
 # Adds an app profile that includes all UniFi SDN ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
+  if [[ -n "${__ufw_skip:-}" ]]; then
+    return 1
+  fi
   __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
   if ! __eubnt_is_package_installed "ufw"; then
     if ! __eubnt_question_prompt "Do you want to install UFW?" "return"; then
