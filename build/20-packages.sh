@@ -133,7 +133,7 @@ function __eubnt_install_updates() {
       fi
       echo
     fi
-    __eubnt_run_command "apt-get dist-upgrade --yes"
+    __eubnt_run_command "apt-get dist-upgrade --yes" || true
     __run_autoremove=true
   fi
   if [[ -n "${java_held:-}" ]]; then
