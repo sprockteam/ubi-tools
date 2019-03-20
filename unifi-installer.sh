@@ -1656,6 +1656,7 @@ function __eubnt_check_system() {
 ### Execution of script
 ##############################################################################
 
+__eubnt_question_prompt "This script is deprecated. Do you want to proceed anyway?" "exit" "n"
 ln --force --symbolic "${__script_log}" "${__script_log_dir}/${__script_name}-latest.log"
 __eubnt_script_colors
 __eubnt_show_header
