@@ -147,6 +147,7 @@ function __eubnt_cleanup_before_exit() {
   for var_name in ${!__*}; do
     unset -v "${var_name}"
   done
+  unset IFS
   echo
 }
 trap '__eubnt_cleanup_before_exit' EXIT
