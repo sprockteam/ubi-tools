@@ -6,4 +6,5 @@
 !unifi-installer.sh
 !/build/
 !/deb/
+!/extras/
 !/lib/

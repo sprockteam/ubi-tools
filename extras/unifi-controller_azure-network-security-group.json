@@ -1,0 +1,304 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "UnifiNetworkInformPort": {
+            "defaultValue": "8080",
+            "type": "String"
+        },
+        "UnifiNetworkStunPort": {
+            "defaultValue": "3478",
+            "type": "String"
+        },
+        "UnifiNetworkSpeedPort": {
+            "defaultValue": "6789",
+            "type": "String"
+        },
+        "UnifiNetworkPortalPort": {
+            "defaultValue": "8880",
+            "type": "String"
+        },
+        "UnifiNetworkPortalSecurePort": {
+            "defaultValue": "8843",
+            "type": "String"
+        },
+        "UnifiNetworkAdminPort": {
+            "defaultValue": "8443",
+            "type": "String"
+        },
+        "WebPort": {
+            "defaultValue": "80",
+            "type": "String"
+        },
+        "WebSecurePort": {
+            "defaultValue": "443",
+            "type": "String"
+        },
+        "SecureShellPort": {
+            "defaultValue": "22",
+            "type": "String"
+        },
+        "UnifiNetworkInformPriority": {
+            "defaultValue": "100",
+            "type": "String"
+        },
+        "UnifiNetworkStunPriority": {
+            "defaultValue": "110",
+            "type": "String"
+        },
+        "UnifiNetworkSpeedPriority": {
+            "defaultValue": "120",
+            "type": "String"
+        },
+        "UnifiNetworkPortalPriority": {
+            "defaultValue": "130",
+            "type": "String"
+        },
+        "UnifiNetworkPortalSecurePriority": {
+            "defaultValue": "140",
+            "type": "String"
+        },
+        "UnifiNetworkAdminPriority": {
+            "defaultValue": "150",
+            "type": "String"
+        },
+        "WebPriority": {
+            "defaultValue": "200",
+            "type": "String"
+        },
+        "WebSecurePriority": {
+            "defaultValue": "210",
+            "type": "String"
+        },
+        "SecureShellPriority": {
+            "defaultValue": "300",
+            "type": "String"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "UniFiNetworkController",
+            "apiVersion": "2018-12-01",
+            "location": "southcentralus",
+            "scale": null,
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "UniFiNetworkInform",
+                        "properties": {
+                            "description": "Required to allow devices to communicate with the Controller",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkInformPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkInformPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "UniFiNetworkStun",
+                        "properties": {
+                            "description": "Required to allow the Controller to communicate back to devices",
+                            "protocol": "UDP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkStunPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkStunPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "UniFiNetworkSpeed",
+                        "properties": {
+                            "description": "Used to test throughput speed using the UniFi mobile app",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkSpeedPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkSpeedPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "UniFiNetworkPortal",
+                        "properties": {
+                            "description": "Used to allow for guest portal access to the Controller",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkPortalPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkPortalPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "UniFiNetworkPortalSecure",
+                        "properties": {
+                            "description": "Used to allow for guest secure portal access to the Controller",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkPortalSecurePort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkPortalSecurePriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "UniFiNetworkAdmin",
+                        "properties": {
+                            "description": "Required for Controller administration",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('UnifiNetworkAdminPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('UnifiNetworkAdminPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "Web",
+                        "properties": {
+                            "description": "Used by nginx reverse proxy and/or Let's Encrypt challenges",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('WebPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('WebPriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "WebSecure",
+                        "properties": {
+                            "description": "Secure port used by nginx reverse proxy and/or Let's Encrypt challenges",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('WebSecurePort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('WebSecurePriority')]",
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "SecureShell",
+                        "properties": {
+                            "description": "Required for SSH access",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "[parameters('SecureShellPort')]",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": "[parameters('SecureShellPriority')]",
+                            "direction": "Inbound"
+                        }
+                    }
+                ],
+                "defaultSecurityRules": [
+                    {
+                        "name": "AllowVnetInBound",
+                        "properties": {
+                            "description": "Allow inbound traffic from all VMs in VNET",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "VirtualNetwork",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 65000,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "AllowAzureLoadBalancerInBound",
+                        "properties": {
+                            "description": "Allow inbound traffic from azure load balancer",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "AzureLoadBalancer",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 65001,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "DenyAllInBound",
+                        "properties": {
+                            "description": "Deny all inbound traffic",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Deny",
+                            "priority": 65500,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "AllowVnetOutBound",
+                        "properties": {
+                            "description": "Allow outbound traffic from all VMs to all VMs in VNET",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "VirtualNetwork",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 65000,
+                            "direction": "Outbound"
+                        }
+                    },
+                    {
+                        "name": "AllowInternetOutBound",
+                        "properties": {
+                            "provisioningState": "Succeeded",
+                            "description": "Allow outbound traffic from all VMs to Internet",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "Internet",
+                            "access": "Allow",
+                            "priority": 65001,
+                            "direction": "Outbound"
+                        }
+                    },
+                    {
+                        "name": "DenyAllOutBound",
+                        "properties": {
+                            "description": "Deny all outbound traffic",
+                            "protocol": "*",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "*",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Deny",
+                            "priority": 65500,
+                            "direction": "Outbound"
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}
