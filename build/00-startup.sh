@@ -10,7 +10,7 @@
 __script_title="Easy UBNT"
 __script_name="easy-ubnt"
 __script_name_short="eubnt"
-__script_version="v0.6.1"
+__script_version="v0.6.1-rc.1"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Frank Gabriel (Frankedinven)
@@ -28,6 +28,9 @@ Sam Sawyer (ssawyer)"
 # https://github.com/koalaman/shellcheck
 # GNU General Public License v3.0
 # Copyright (c) 2012-2018 Vidar 'koala_man' Holen and contributors
+###
+# Bash Cheatsheet
+# https://devhints.io/bash
 ###
 # https://unix.stackexchange.com/a/159369 - Basic sed usage
 # https://stackoverflow.com/a/26568996 - Combine multiple sed patterns
