@@ -69,7 +69,7 @@ while getopts ":c:d:i:p:afhquvx" options; do
       fi;;
     p)
       if [[ -n "${OPTARG:-}" ]]; then
-        if [[ "${OPTARG}" = "unifi-sdn" ]]; then
+        if [[ "${OPTARG}" = "unifi-sdn" || "${OPTARG}" = "unifi-network" ]]; then
           __ubnt_selected_product="unifi-controller"
         else
           for product in "${!__ubnt_products[@]}"; do

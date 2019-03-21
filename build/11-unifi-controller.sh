@@ -1,7 +1,7 @@
-### UniFi SDN Controller functions
+### UniFi Network Controller functions
 ##############################################################################
 
-# Return a service port from the UniFi SDN Controller properties
+# Return a service port from the UniFi Network Controller properties
 # $1: The port setting name to check
 function __eubnt_unifi_controller_get_port() {
   if [[ -z "${1:-}" ]]; then
@@ -26,7 +26,7 @@ function __eubnt_unifi_controller_get_port() {
   fi
 }
 
-# This will initialize all variables related to UniFi SDN Controller functions
+# This will initialize all variables related to UniFi Network Controller functions
 # TODO: Make more of these dynamic
 # $1: If set to "skip_ports" then don't initialize port variables
 function __eubnt_initialize_unifi_controller_variables() {
@@ -65,7 +65,7 @@ function __eubnt_initialize_unifi_controller_variables() {
   fi
 }
 
-# Perform various checks to see if the UniFi SDN Controller is running
+# Perform various checks to see if the UniFi Network Controller is running
 # $1: Optionally set this to "continous" to keep checking until it's running
 function __eubnt_is_unifi_controller_running() {
   __eubnt_initialize_unifi_controller_variables
@@ -85,7 +85,7 @@ function __eubnt_is_unifi_controller_running() {
   return 1
 }
 
-# Various evaluations to use with MongoDB related to the UniFi SDN Controller
+# Various evaluations to use with MongoDB related to the UniFi Network Controller
 # $1: Specify which "eval" command to issue
 #     "lts-devices" will check if devices are in the database that are only supported by LTS
 function __eubnt_unifi_controller_mongodb_evals() {
@@ -107,10 +107,10 @@ function __eubnt_unifi_controller_mongodb_evals() {
   return 1
 }
 
-# Show install/reinstall/update options for UniFi SDN Controller
+# Show install/reinstall/update options for UniFi Network Controller
 function __eubnt_install_unifi_controller()
 {
-  __eubnt_show_header "Installing UniFi SDN Controller..."
+  __eubnt_show_header "Installing UniFi Network Controller..."
   local selected_version=""
   local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6")"
   local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable")"
@@ -155,7 +155,7 @@ function __eubnt_install_unifi_controller()
       versions_to_select+=("${available_version_lts}" "   LTS release, to support Gen1 AC and PicoM2")
     fi
     versions_to_select+=("Other" "   Manually enter a version number" "Early Access" "   Use this to paste Early Access release URLs")
-    __eubnt_show_whiptail "menu" "Which UniFi SDN Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"
+    __eubnt_show_whiptail "menu" "Which UniFi Network Controller version do you want to (re)install or upgrade to?" "selected_version" "versions_to_select"
     if [[ "${selected_version}" = "Cancel" ]]; then
       return 1
     fi
@@ -223,7 +223,7 @@ function __eubnt_install_unifi_controller()
   fi
 }
 
-# Installs the UniFi SDN Controller based on a version number and download URL
+# Installs the UniFi Network Controller based on a version number and download URL
 # $1: The full version number to install and URL, example: "5.6.40|https://dl.ubnt.com/unifi/5.6.40/unifi_sysvinit_all.deb"
 # TODO: Try to recover if install fails
 function __eubnt_install_unifi_controller_version()
@@ -239,7 +239,7 @@ function __eubnt_install_unifi_controller_version()
   if [[ ! "${install_this_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
     return 1
   fi
-  __eubnt_show_header "Installing UniFi SDN Controller ${install_this_version:-}..."
+  __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}..."
   __eubnt_initialize_unifi_controller_variables
   if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]]; then
     __eubnt_show_warning "Make sure you have a backup!"
@@ -249,13 +249,13 @@ function __eubnt_install_unifi_controller_version()
     fi
   fi
   if __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${install_this_version:-}"; then
-    __eubnt_show_notice "UniFi SDN Controller ${install_this_version} is already installed..."
+    __eubnt_show_notice "UniFi Network Controller ${install_this_version} is already installed..."
     echo
     if ! __eubnt_question_prompt "Do you want to reinstall it?" "return" "n"; then
       return 1
     fi
   elif __eubnt_version_compare "${__unifi_controller_package_version:-}" "gt" "${install_this_version:-}"; then
-    __eubnt_show_warning "UniFi SDN Controller ${install_this_version} is a previous version..."
+    __eubnt_show_warning "UniFi Network Controller ${install_this_version} is a previous version..."
     echo
     if ! __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       return 1
@@ -270,7 +270,7 @@ function __eubnt_install_unifi_controller_version()
   fi
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
     __eubnt_run_command "service unifi restart"
-    __eubnt_show_text "Waiting for UniFi SDN Controller to finish loading..."
+    __eubnt_show_text "Waiting for UniFi Network Controller to finish loading..."
     echo
     while ! __eubnt_is_unifi_controller_running; do
       sleep 3
@@ -286,7 +286,7 @@ function __eubnt_install_unifi_controller_version()
           echo "unifi unifi/has_backup boolean true" | debconf-set-selections
           __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
           if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
-            __eubnt_show_success "Installation complete! Waiting for UniFi SDN Controller to finish loading..."
+            __eubnt_show_success "Installation complete! Waiting for UniFi Network Controller to finish loading..."
             while ! __eubnt_is_unifi_controller_running; do
               sleep 3
             done

@@ -96,7 +96,7 @@ function __eubnt_setup_sources() {
 }
 
 # Install package upgrades through apt-get dist-upgrade
-# Ask if packages critical to UniFi SDN Controller function should be updated or not
+# Ask if packages critical to UniFi Network Controller function should be updated or not
 function __eubnt_install_updates() {
   __eubnt_show_header "Installing updates..."
   local java_update_available=

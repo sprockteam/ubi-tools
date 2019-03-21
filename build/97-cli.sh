@@ -12,21 +12,21 @@ function __eubnt_invoke_cli() {
   fi
 }
 
-# A wrapper function to get the available UniFi SDN Controller version number
+# A wrapper function to get the available UniFi Network Controller version number
 function __eubnt_cli_unifi_controller_get_available_version() {
   if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}"; then
     return 1
   fi
 }
 
-# A wrapper function to get the available UniFi SDN Controller download URL for given version
+# A wrapper function to get the available UniFi Network Controller download URL for given version
 function __eubnt_cli_unifi_controller_get_available_download() {
   if ! __eubnt_ubnt_get_product "unifi-controller" "${1:-stable}" "url"; then
     return 1
   fi
 }
 
-# A wrapper function to get the installed UniFi SDN Controller version
+# A wrapper function to get the installed UniFi Network Controller version
 function __eubnt_cli_unifi_controller_get_installed_version() {
   __eubnt_initialize_unifi_controller_variables
   if [[ -n "${__unifi_controller_is_installed:-}" ]]; then

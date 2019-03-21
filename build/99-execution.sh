@@ -50,7 +50,7 @@ fi
 if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
   __eubnt_initialize_unifi_controller_variables
   if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
-    __eubnt_show_notice "UniFi SDN Controller ${__unifi_controller_package_version} is installed"
+    __eubnt_show_notice "UniFi Network Controller ${__unifi_controller_package_version} is installed"
   fi
 fi
 echo

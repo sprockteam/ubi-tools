@@ -21,7 +21,7 @@ function __eubnt_allow_hosts_ufw_app() {
 }
 
 # Install and setup UFW
-# Adds an app profile that includes all UniFi SDN ports to allow for easy rule management in UFW
+# Adds an app profile that includes all UniFi Network ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
   if [[ -n "${__ufw_skip:-}" ]]; then
@@ -54,27 +54,27 @@ function __eubnt_setup_ufw() {
       apps_to_allow+=("UniFi-Controller")
       tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
 [UniFi-Controller-Inform]
-title=UniFi SDN Controller Inform and STUN
+title=UniFi Network Controller Inform and STUN
 description=TCP and UDP ports used to add devices to the controller and allow for remote terminal access
 ports=${__unifi_controller_port_tcp_inform}/tcp|${__unifi_controller_port_udp_stun}/udp
 
 [UniFi-Controller-Admin]
-title=UniFi SDN Controller Admin
+title=UniFi Network Controller Admin
 description=TCP port used to login and administer the controller
 ports=${__unifi_controller_port_tcp_admin}/tcp
 
 [UniFi-Controller-Speed]
-title=UniFi SDN Controller Speed
+title=UniFi Network Controller Speed
 description=TCP port used to test throughput from the mobile app to the controller
 ports=${__unifi_controller_port_tcp_throughput}/tcp
 
 [UniFi-Controller-Portal]
-title=UniFi SDN Controller Portal Access
+title=UniFi Network Controller Portal Access
 description=TCP ports used to allow for guest portal access
 ports=${__unifi_controller_port_tcp_portal_http},${__unifi_controller_port_tcp_portal_https}/tcp
 
 [UniFi-Controller-Local]
-title=UniFi SDN Controller Local Discovery
+title=UniFi Network Controller Local Discovery
 description=UDP ports used for discovery of devices on the local (layer 2) network, not recommended for cloud controllers
 ports=${__unifi_controller_local_udp_port_discoverable_controller},${__unifi_controller_local_udp_port_ap_discovery}/udp
 EOF
