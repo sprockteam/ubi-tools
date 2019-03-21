@@ -51,7 +51,7 @@ function __eubnt_setup_ufw() {
        && -n "${__unifi_controller_port_tcp_portal_https:-}" \
        && -n "${__unifi_controller_port_tcp_throughput:-}" \
        && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
-      apps_to_allow+=("UniFi-Controller")
+      apps_to_allow+=("UniFi-Network")
       tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
 [UniFi-Network-Inform]
 title=UniFi Network Controller Inform
