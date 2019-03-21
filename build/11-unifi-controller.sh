@@ -62,6 +62,11 @@ function __eubnt_initialize_unifi_controller_variables() {
         __unifi_controller_port_udp_stun=$(__eubnt_unifi_controller_get_port "unifi.stun.port")
       fi
     fi
+      for var_name in ${!__unifi_controller*}; do
+        __eubnt_add_to_log "${var_name}=${!var_name}"
+      done
+  else
+    __eubnt_add_to_log "UniFi does not appear to be installed"
   fi
 }
 

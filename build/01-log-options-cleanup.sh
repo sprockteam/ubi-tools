@@ -5,7 +5,7 @@
 # $1: The message to log
 function __eubnt_add_to_log() {
   if [[ -n "${1:-}" && -f "${__script_log:-}" ]]; then
-    echo "${1}" | sed -r 's/\\e\[[^m]*m//g; s/\\n/ /g' >>"${__script_log}"
+    echo "${1}" | sed -r 's/\\e\[[^m]*m//g; s/\\n/ /g; s/\\r/ /g' >>"${__script_log}"
   fi
 }
 
