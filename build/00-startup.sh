@@ -53,6 +53,7 @@ Sam Sawyer (ssawyer)"
 # https://stackoverflow.com/a/13373256 - Extract substring
 # https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
 # https://stackoverflow.com/a/27355109 - Comment lines using sed
+# https://stackoverflow.com/a/13982225 - Do "non-greedy" matching in sed
 ###
 
 

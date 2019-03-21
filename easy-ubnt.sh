@@ -53,6 +53,7 @@ Sam Sawyer (ssawyer)"
 # https://stackoverflow.com/a/13373256 - Extract substring
 # https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
 # https://stackoverflow.com/a/27355109 - Comment lines using sed
+# https://stackoverflow.com/a/13982225 - Do "non-greedy" matching in sed
 ###
 
 
@@ -275,7 +276,7 @@ __completed_mark="${__colors_success_text}\\xE2\\x9C\\x93${__colors_default}"
 # $1: The message to log
 function __eubnt_add_to_log() {
   if [[ -n "${1:-}" && -f "${__script_log:-}" ]]; then
-    echo "${1}" | sed -r 's/\^\[.*m//g' >>"${__script_log}"
+    echo "${1}" | sed -r 's/\\e\[[^m]*m//g; s/\\n/ /g' >>"${__script_log}"
   fi
 }
 
