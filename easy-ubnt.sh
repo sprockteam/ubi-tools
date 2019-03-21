@@ -267,7 +267,7 @@ __colors_success_text="\e[1;32m"
 __colors_default="\e[0m"
 __spinner="-\\|/"
 __failed_mark="${__colors_warning_text}x${__colors_default}"
-__completed_mark="${__colors_success_text}\\xE2\\x9C\\x93${__colors_default}"
+__completed_mark="${__colors_success_text}ok${__colors_default}"
 
 ### Logging functions
 ##############################################################################
