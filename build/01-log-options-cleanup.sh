@@ -96,6 +96,7 @@ while getopts ":c:d:i:p:afhquvx" options; do
       __eubnt_add_to_log "Command line option: enabled verbose mode";;
     x)
       set -o xtrace
+      set +o errexit
       __script_debug=true
       __eubnt_add_to_log "Command line option: enabled xtrace debugging";;
     *)

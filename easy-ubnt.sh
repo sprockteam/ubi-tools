@@ -367,6 +367,7 @@ while getopts ":c:d:i:p:afhquvx" options; do
       __eubnt_add_to_log "Command line option: enabled verbose mode";;
     x)
       set -o xtrace
+      set +o errexit
       __script_debug=true
       __eubnt_add_to_log "Command line option: enabled xtrace debugging";;
     *)
@@ -438,7 +439,7 @@ function __eubnt_show_error() {
     echo -e "Pausing before error message for 10 seconds..."
     sleep 10
   else
-    clear
+    clear || true
   fi
   echo -e "${__colors_error_text}### ${__script_full_title}"
   echo -e "##############################################################################\\n"
@@ -467,7 +468,7 @@ trap '__eubnt_show_error' ERR
 # If $1 is set then it will be displayed under the header
 function __eubnt_show_header() {
   if [[ -z "${__script_debug:-}" || "${2:-}" != "noclear" ]]; then
-    clear
+    clear || true
   fi
   echo -e "${__colors_notice_text}### ${__script_full_title}"
   echo -e "##############################################################################${__colors_default}"
