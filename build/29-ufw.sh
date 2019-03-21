@@ -104,7 +104,7 @@ EOF
       declare -a app_list=($(ufw app list | grep --extended-regexp "${apps_to_check}" | awk '{print $1}'))
       for app_name in "${!app_list[@]}"; do
         allowed_app="${app_list[$app_name]}"
-        if [[ "${allowed_app}" = "UniFi-Controller-Local" ]]; then
+        if [[ "${allowed_app}" = "UniFi-Network-Local" ]]; then
           allow_access="n"
         else
           allow_access="y"
