@@ -5,6 +5,7 @@
 !easy-ubnt.sh
 !unifi-installer.sh
 !/build/
+/build/_config.sh
 !/deb/
 !/extras/
 !/lib/
