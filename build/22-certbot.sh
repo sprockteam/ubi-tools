@@ -26,28 +26,29 @@ function __eubnt_setup_certbot() {
   local apparent_public_ip=""
   local email_option=""
   local days_to_renewal=""
+  if [[ -z "${__quick_mode:-}" ]]; then
+    if ! __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
+      return 1
+    fi
+  fi
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
-  if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
-    if ! __eubnt_is_command "certbot"; then
-      if [[ -n "${__is_ubuntu:-}" ]]; then
-        if ! __eubnt_setup_sources "certbot"; then
-          return 1
-        fi
-      fi
-      if [[ "${__os_version_name}" = "jessie" ]]; then
-        if ! __eubnt_install_package "python-cffi python-cryptography certbot" "jessie-backports"; then
-          __eubnt_show_warning "Unable to install certbot"
-          return 1
-        fi
-      else
-        if ! __eubnt_install_package "certbot"; then
-          __eubnt_show_warning "Unable to install certbot"
-          return 1
-        fi
+  if ! __eubnt_is_command "certbot"; then
+    if [[ -n "${__is_ubuntu:-}" ]]; then
+      if ! __eubnt_setup_sources "certbot"; then
+        return 1
       fi
     fi
-  else
-    return 1
+    if [[ "${__os_version_name}" = "jessie" ]]; then
+      if ! __eubnt_install_package "python-cffi python-cryptography certbot" "jessie-backports"; then
+        __eubnt_show_warning "Unable to install certbot"
+        return 1
+      fi
+    else
+      if ! __eubnt_install_package "certbot"; then
+        __eubnt_show_warning "Unable to install certbot"
+        return 1
+      fi
+    fi
   fi
   if ! __eubnt_is_command "certbot"; then
     echo
