@@ -29,6 +29,7 @@ function __eubnt_show_error() {
     __eubnt_echo_and_log "Error message: ${1}"
   fi
   echo -e "${__colors_default}"
+  __script_error=true
   exit 1
 }
 trap '__eubnt_show_error' ERR
@@ -46,8 +47,9 @@ function __eubnt_show_header() {
   fi
   echo -e "${__colors_notice_text}### ${__script_full_title}"
   echo -e "##############################################################################${__colors_default}"
-  __eubnt_show_notice "${1:-}"
-  echo
+  if [[ -n "${1:-}" ]]; then
+    __eubnt_show_notice "${1}"
+  fi
 }
 
 # Print text to the screen
@@ -141,11 +143,13 @@ function __eubnt_show_license() {
   __eubnt_show_text "MIT License\\nCopyright (c) 2018-2019 SprockTech, LLC and contributors\\n
 Read the full MIT License for this script here:
 https://github.com/sprockteam/easy-ubnt/raw/master/LICENSE\\n
-Contributors (UBNT Community Username):"
+Contributors:"
   __eubnt_show_notice "${__script_contributors:-}"
+  __eubnt_show_text "Mentions:"
+  __eubnt_show_notice "${__script_mentions:-}"
   __eubnt_show_text "This script will guide you through installing, upgrading or removing
-the UBNT products, as well as tweaking, securing and maintaining
-this system according to best practices."
+UBNT products, as well as tweaking, securing and maintaining this
+system according to best practices."
   __eubnt_show_warning "THIS SCRIPT IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND!"
 }
 
@@ -154,11 +158,10 @@ this system according to best practices."
 
 # Use whiptail to display information and options on the screen
 # $1: The type of whiptail object to display: "msgbox" (default), "yesno", "input", "menu"
-# $2: The message text to display under the title
-# $3: The variable to assign return values for "menu" and "input" responses
-# $4: If $1 is "menu" then an array of menu items ("tag" "description" ...)
-#     If $1 is "input" then this can be set to "optional" to allow for empty responses
-# $5: Optionally set to "alert" for a red background
+# $2: The title to display at the top
+# $3: An array of menu items ("tag" "description" ...)
+# $4  Optionally set to "optional" to allow for empty responses
+# $5: Optionally set background color styles: "alert"
 # $6: Optionally specify the height
 # $7: Optionally specify the width
 # $8: If a menu, optionally specify the number of lines for the menu
@@ -191,28 +194,28 @@ function __eubnt_show_whiptail() {
     listbox=red,white
     actsellistbox=white,red
     button=white,red"
-    if [[ "${1}" = "menu" && -n "${4:-}" ]]; then
+    if [[ "${1}" = "menu" && -n "${3:-}" ]]; then
       export NEWT_COLORS="${newt_colors_normal}"
-      local -n menu_items=${4}
+      local -n menu_items=${3}
       local menu_lines=$((${#menu_items[@]} + 3))
       menu_lines="${8:-${menu_lines}}"
-      message=${2:-"Please make a selection:"}
+      title="${2:-${__script_full_title}}"
       height="${6:-30}"
       width="${7:-80}"
-      local selected_item="$(whiptail --title "${__script_full_title}" --menu "\\n${message}" "${height}" "${width}" "${menu_lines}" "${menu_items[@]}" 3>&1 1>&2 2>&3)" || true
+      local selected_item="$(whiptail --title "${__script_title} - ${title}" --menu "\\n" "${height}" "${width}" "${menu_lines}" "${menu_items[@]}" 3>&1 1>&2 2>&3)" || true
       if [[ -n "${selected_item:-}" ]]; then
-        eval "${3}=\"${selected_item}\""
+        echo "${selected_item}"
       else
         error_response=true
       fi
     elif [[ "${1}" = "input" && -n "${2:-}" ]]; then
       export NEWT_COLORS="${newt_colors_normal}"
-      message=${2}
+      title=${2}
       height="${6:-15}"
       width="${7:-80}"
-      local answer="$(whiptail --title "${__script_full_title}" --inputbox "\\n${message}" "${height}" "${width}" 3>&1 1>&2 2>&3)" || true
+      local answer="$(whiptail --title "${__script_title} - ${title}" --inputbox "\\n" "${height}" "${width}" 3>&1 1>&2 2>&3)" || true
       if [[ -n "${answer:-}" ]]; then
-        eval "${3}=\"${answer}\""
+        echo "${answer}"
       elif [[ -z "${answer:-}" && "${4:-}" = "optional" ]]; then
         true # Allow an empty response
       else
@@ -229,10 +232,11 @@ function __eubnt_show_whiptail() {
 }
 
 # Display a yes or no question and proceed accordingly based on the answer
+# A yes answer returns 0 and a no answer returns 1
 # If no answer is given, the default answer is used
 # If the script it running in "quiet mode" then the default answer is used without prompting
 # $1: The question to use instead of the default question
-# $2: Can be set to "return" if an error should be returned instead of exiting
+# $2: Can be set to "exit" to exit instead of returning 1
 # $3: Can be set to "n" if the default answer should be no instead of yes
 function __eubnt_question_prompt() {
   local yes_no=""
@@ -256,14 +260,12 @@ function __eubnt_question_prompt() {
   __eubnt_add_to_log "${1:-$default_question} ${yes_no}"
   case "${yes_no}" in
     [Nn]*)
-      echo
-      if [[ "${2:-}" = "return" ]]; then
-        return 1
-      else
+      if [[ "${2:-}" = "exit" ]]; then
         exit
+      else
+        return 1
       fi;;
     [Yy]*)
-      echo
       return 0;;
   esac
 }
@@ -291,4 +293,4 @@ function __eubnt_get_user_input() {
   fi
 }
 
-### End ##
+### End ###

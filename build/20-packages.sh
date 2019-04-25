@@ -9,13 +9,10 @@
 # Java: Use the core distribution sources to get Java for all others
 # MongoDB: Official repository only distributes 64-bit packages, not compatible with Wheezy
 # MongoDB: UniFi will install it from distribution sources if needed
-# $1: Optionally setup sources for "mongodb3_4", "java8", "nodejs", "certbot"
+# $1: Optionally setup sources for "mongodb", "java", "nodejs", "certbot"
 function __eubnt_setup_sources() {
   local do_apt_update=
-  if [[ -z "${__os_version_name:-}" ]]; then
-    __os_version_name="$(lsb_release --codename --short)"
-  fi
-  __eubnt_install_package "software-properties-common" || true
+  __eubnt_install_package "software-properties-common"
   if [[ -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ]]; then
     local kernel_mirror_repo="ubuntu"
     if [[ -n "${__is_mint:-}" ]]; then
@@ -23,6 +20,7 @@ function __eubnt_setup_sources() {
     fi
     __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main" && do_apt_update=true
     __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main" && do_apt_update=true
+    __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__ubuntu_version_name_to_use_for_repos}-security main universe" "${__ubuntu_version_name_to_use_for_repos}-security.list" "security\\.ubuntu\\.com.*${__ubuntu_version_name_to_use_for_repos}-security main" && do_apt_update=true
     __eubnt_add_source "http://mirrors.kernel.org/${kernel_mirror_repo} ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main" && do_apt_update=true
   elif [[ -n "${__is_debian:-}" ]]; then
     __eubnt_install_package "dirmngr" || true
@@ -30,14 +28,15 @@ function __eubnt_setup_sources() {
     __eubnt_add_source "http://mirrors.kernel.org/debian ${__os_version_name} main" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main" && do_apt_update=true
   fi
   if [[ -n "${do_apt_update:-}" ]]; then
-    __eubnt_run_command "apt-get update"
-    do_apt_update=
+    if __eubnt_run_command "apt-get update"; then
+      do_apt_update=
+    fi
   fi
-  if [[ "${1:-}" = "mongodb3_4" ]]; then
+  if [[ "${1:-}" = "mongodb" ]]; then
     local distro_mongodb_installable_version="$(apt-cache madison mongodb | sort --version-sort | tail --lines=1 | awk '{print $3}' | sed 's/.*://; s/[-+].*//;')"
     if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
       local official_mongodb_repo_url=""
-      if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || "${__is_mint:-}" ) ]]; then
+      if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ) ]]; then
         local os_version_name_for_official_mongodb_repo="${__ubuntu_version_name_to_use_for_repos}"
         if [[ "${__ubuntu_version_name_to_use_for_repos}" = "precise" ]]; then
           os_version_name_for_official_mongodb_repo="trusty"
@@ -59,7 +58,7 @@ function __eubnt_setup_sources() {
         fi
       fi
     fi
-  elif [[ "${1:-}" = "java8" ]]; then
+  elif [[ "${1:-}" = "java" ]]; then
     local openjdk8_installable_version="$(apt-cache madison openjdk-8-jre-headless | awk '{print $3}' | sed 's/.*://; s/[-+].*//;' | sort --version-sort | tail --lines=1)"
     if [[ ! "${openjdk8_installable_version}" =~ ${__regex_version_java8} ]]; then
       if __eubnt_add_source "http://ppa.launchpad.net/webupd8team/java/ubuntu ${__ubuntu_version_name_to_use_for_repos} main" "webupd8team-java.list" "ppa\\.launchpad\\.net.*${__ubuntu_version_name_to_use_for_repos}.*main"; then
@@ -91,117 +90,126 @@ function __eubnt_setup_sources() {
     fi
   fi
   if [[ -n "${do_apt_update:-}" ]]; then
-    __eubnt_run_command "apt-get update"
+    __eubnt_run_command "apt-get update" || true
   fi
 }
 
 # Install package upgrades through apt-get dist-upgrade
 # Ask if packages critical to UniFi Network Controller function should be updated or not
 function __eubnt_install_updates() {
-  __eubnt_show_header "Installing updates..."
+  __eubnt_show_header "Installing updates...\\n"
   local java_update_available=
   local mongodb_update_available=
+  local java_package="openjdk-8-jre-headless"
   local java_held=
   local mongodb_held=
-  __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet"
-  if [[ -z $(tail --lines=1 "${__script_log}" | awk '$1>0') ]]; then
-    return
-  fi
-  if __eubnt_question_prompt "Check for and install available package upgrades?" "return"; then
-    __eubnt_install_package "unattended-upgrades" || true
-    if __eubnt_is_package_installed "${__java_package_installed:-}"; then
-      java_update_available=$(apt-cache policy "${__java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
-    fi
-    if __eubnt_is_package_installed "${__mongodb_package_installed:-}"; then
-      mongodb_update_available=$(apt-cache policy "${__mongodb_package_installed}" | awk '/Candidate/{print $2}' | sed 's/.*://; s/-.*//')
-    fi
-    if [[ -n "${mongodb_update_available:-}" && "${mongodb_update_available:-}" != "${__mongodb_version_installed}" ]]; then
-      __eubnt_show_text "MongoDB ${__mongodb_version_installed} is installed, ${__colors_warning_text}version ${mongodb_update_available} is available"
+  local updates_available=""
+  __eubnt_run_command "apt-get update" || true
+  __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"
+  updates_available="$(echo "${updates_available}" | grep --count "^Inst " || updates_available=0)"
+  if [[ "${updates_available:-}" -gt 0 ]]; then
+    echo
+    if __eubnt_question_prompt "Install available package upgrades?"; then
       echo
-      if ! __eubnt_question_prompt "Do you want to update MongoDB to ${mongodb_update_available}?" "return"; then
-        __eubnt_run_command "apt-mark hold ${__mongodb_package_installed}"
-        mongodb_held=true
+      __eubnt_install_package "unattended-upgrades" || true
+      
+      if __eubnt_is_package_installed "${}"; then
+        java_update_available=$(apt-cache policy "${__java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
       fi
-      echo
-    fi
-    if [[ -n "${java_update_available:-}" && "${java_update_available:-}" != "${__java_version_installed}" ]]; then
-      __eubnt_show_text "Java ${__java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available"
-      echo
-      if ! __eubnt_question_prompt "Do you want to update Java to ${java_update_available}?" "return"; then
-        __eubnt_run_command "apt-mark hold ${__java_package_installed}"
-        java_held=true
+      if __eubnt_is_package_installed "${__mongodb_package_installed:-}"; then
+        mongodb_update_available=$(apt-cache policy "${__mongodb_package_installed}" | awk '/Candidate/{print $2}' | sed 's/.*://; s/-.*//')
       fi
-      echo
+      if [[ -n "${mongodb_update_available:-}" && "${mongodb_update_available:-}" != "${__mongodb_version_installed}" ]]; then
+        __eubnt_show_text "MongoDB ${__mongodb_version_installed} is installed, ${__colors_warning_text}version ${mongodb_update_available} is available"
+        echo
+        if ! __eubnt_question_prompt "Do you want to update MongoDB to ${mongodb_update_available}?"; then
+          if __eubnt_run_command "apt-mark hold ${__mongodb_package_installed}"; then
+            mongodb_held=true
+          fi
+        fi
+        echo
+      fi
+      if [[ -n "${java_update_available:-}" && "${java_update_available:-}" != "${__java_version_installed}" ]]; then
+        __eubnt_show_text "Java ${__java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available"
+        echo
+        if ! __eubnt_question_prompt "Do you want to update Java to ${java_update_available}?"; then
+          if __eubnt_run_command "apt-mark hold ${__java_package_installed}"; then
+            java_held=true
+          fi
+        fi
+        echo
+      fi
+      __eubnt_run_command "apt-get dist-upgrade --yes" || true
+      __run_autoremove=true
     fi
-    __eubnt_run_command "apt-get dist-upgrade --yes" || true
-    __run_autoremove=true
   fi
   if [[ -n "${java_held:-}" ]]; then
-    __eubnt_run_command "apt-mark unhold ${__java_package_installed}"
+    __eubnt_run_command "apt-mark unhold ${__java_package_installed}" || true
   fi
   if [[ -n "${mongodb_held:-}" ]]; then
-    __eubnt_run_command "apt-mark unhold ${__mongodb_package_installed}"
+    __eubnt_run_command "apt-mark unhold ${__mongodb_package_installed}" || true
   fi
 }
 
-# Install OpenJDK Java 8 for most OS versions
-# Install WebUpd8 Team's Oracle Java 8 PPA if needed
-# Use haveged for better entropy generation from @ssawyer (https://community.ubnt.com/t5/UniFi-Wireless/UniFi-Controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452)
-function __eubnt_install_java8() {
-  if [[ -z "${__java_package_installed:-}" ]]; then
-    if [[ "${1:-}" != "noheader" ]]; then
-      __eubnt_show_header "Installing Java..."
-    fi
-    __eubnt_setup_sources "java8"
-    if [[ -n "${__install_webupd8_java:-}" ]]; then
-      echo "oracle-java8-installer shared/accepted-oracle-license-v1-1 select true" | debconf-set-selections
-      if ! __eubnt_install_package "oracle-java8-installer"; then
-        __eubnt_show_error "Unable to install WebUpd8 PPA Java 8 at $(caller)"
-      fi
-    else
-      local target_release=""
-      if [[ "${__os_version_name}" = "jessie" ]]; then
-        target_release="${__os_version_name}-backports"
-      fi
-      if __eubnt_install_package "ca-certificates-java" "${target_release:-}"; then
-        if ! __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"; then
-          __eubnt_show_error "Unable to install OpenJDK Java 8 at $(caller)"
-        fi
-      fi
+# Try to install OpenJDK Java 8
+# Use haveged for better entropy generation from @ssawyer
+# https://community.ubnt.com/t5/UniFi-Wireless/unifi-controller-Linux-Install-Issues/m-p/1324455/highlight/true#M116452
+function __eubnt_install_java() {
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Installing Java...\\n"
+  fi
+  __eubnt_setup_sources "java"
+  local target_release=""
+  if [[ "${__os_version_name}" = "jessie" ]]; then
+    target_release="${__os_version_name}-backports"
+  fi
+  if __eubnt_install_package "ca-certificates-java" "${target_release:-}"; then
+    if ! __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"; then
+      __eubnt_show_warning "Unable to install OpenJDK Java 8 at $(caller)"
+      return 1
     fi
   fi
   if [[ "${1:-}" != "noheader" ]]; then
-    __eubnt_show_header "Checking extra Java-related packages..."
+    __eubnt_show_header "Checking extra Java-related packages...\\n"
   fi
   if __eubnt_run_command "update-alternatives --list java" "quiet"; then
-    __eubnt_install_package "jsvc"
-    __eubnt_install_package "libcommons-daemon-java"
-    __eubnt_install_package "haveged"
+    __eubnt_install_package "jsvc" || true
+    __eubnt_install_package "libcommons-daemon-java" || true
+    __eubnt_install_package "haveged" || true
   fi
 }
 
+# Set default Java alternative
+# $1: The Java package to set as the default
+function __eubnt_set_java_alternative() {
+  true
+}
+
 # Install MongoDB
-function __eubnt_install_mongodb3_4()
+function __eubnt_install_mongodb()
 {
   if [[ -z "${__mongodb_package_installed:-}" ]]; then
     if [[ "${1:-}" != "noheader" ]]; then
-      __eubnt_show_header "Installing MongoDB..."
+      __eubnt_show_header "Installing MongoDB...\\n"
     fi
-    __eubnt_setup_sources "mongodb3_4"
-    __eubnt_install_package "${__install_mongodb_package:-}"
+    __eubnt_setup_sources "mongodb"
+    if ! __eubnt_install_package "${__install_mongodb_package:-}"; then
+      __eubnt_show_warning "Unable to install MongoDB at $(caller)"
+      return 1
+    fi
   fi
 }
 
 # Install script dependencies
 function __eubnt_install_dependencies()
 {
-  __eubnt_install_package "apt-transport-https" || true
+  __eubnt_install_package "apt-transport-https"
   __eubnt_install_package "sudo" || true
   __eubnt_install_package "curl" || true
   __eubnt_install_package "net-tools" || true
   __eubnt_install_package "dnsutils" || true
   __eubnt_install_package "psmisc" || true
-  __eubnt_install_package "jq" || true
+  __eubnt_install_package "jq"
 }
 
 ### End ###

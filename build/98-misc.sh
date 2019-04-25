@@ -10,12 +10,12 @@
 # Update apt-get and apt-file
 function __eubnt_common_fixes {
   if [[ "${1:-}" != "noheader" ]]; then
-    __eubnt_show_header "Running common fixes..."
+    __eubnt_show_header "Running common fixes...\\n"
   fi
-  __eubnt_run_command "apt-get install --fix-broken --yes"
-  __eubnt_run_command "apt-get autoremove --yes"
-  __eubnt_run_command "apt-get clean --yes"
-  __eubnt_run_command "rm -rf /var/lib/apt/lists/*"
+  __eubnt_run_command "apt-get install --fix-broken --yes" || true
+  __eubnt_run_command "apt-get autoremove --yes" || true
+  __eubnt_run_command "apt-get clean --yes" || true
+  __eubnt_run_command "rm -rf /var/lib/apt/lists/*" || true
   if [[ ( -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ) && -d /boot ]]; then
     if ! grep --quiet "127\.0\.1\.1.*{__hostname_local}" /etc/hosts; then
       sed -i "1s/^/127.0.1.1\t${__hostname_local}\n/" /etc/hosts
@@ -32,19 +32,21 @@ function __eubnt_common_fixes {
           find /boot -maxdepth 1 -type f -name "*${kernel_version}*" -exec rm {} \; -exec echo Removing {} >>"${__script_log}" \;
         fi
       done
-      __eubnt_run_command "apt-get install --fix-broken --yes"
-      __eubnt_run_command "apt-get autoremove --yes"
+      __eubnt_run_command "apt-get install --fix-broken --yes" || true
+      __eubnt_run_command "apt-get autoremove --yes" || true
       while IFS=$'\n' read -r found_package; do kernel_packages+=("$found_package"); done < <(dpkg --list linux-{image,headers}-"[0-9]*" | awk '/linux/{print $2}')
       for kernel in "${!kernel_packages[@]}"; do
         kernel_version=$(echo "${kernel_packages[$kernel]}" | sed --regexp-extended 's/linux-(image|headers)-//g' | sed 's/[-][a-z].*//g')
         if [[ "${kernel_version}" = *"-"* && "${__os_kernel_version}" = *"-"* && "${kernel_version//-*/}" = "${__os_kernel_version//-*/}" && "${kernel_version//*-/}" -lt "${__os_kernel_version//*-/}" ]]; then
-          __eubnt_run_command "apt-get purge --yes ${kernel_packages[$kernel]}"
+          if ! __eubnt_run_command "apt-get purge --yes ${kernel_packages[$kernel]}"; then
+            __eubnt_show_warning "Unable to purge kernel package ${kernel_packages[$kernel]}"
+          fi
         fi
       done
     fi
   fi
-  __eubnt_run_command "apt-get update"
-  __eubnt_run_command "apt-file update"
+  __eubnt_run_command "apt-get update" || true
+  __eubnt_run_command "apt-file update" || true
 }
 
 # Recommended by CrossTalk Solutions (https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/)
@@ -59,19 +61,22 @@ function __eubnt_setup_swap_file() {
           else
             echo "/swapfile none swap sw 0 0" >>/etc/fstab
           fi
-          __eubnt_show_success "\\nCreated swap file!\\n"
+          echo
+          __eubnt_show_success "Created swap file!"
+          echo
         else
           rm -rf /swapfile
-          __eubnt_show_warning "Unable to create swap file!\\n"
+          __eubnt_show_warning "Unable to create swap file!"
+          echo
         fi
       fi
     fi
   fi
   if [[ $(cat /proc/sys/vm/swappiness) -ne 10 ]]; then
-    __eubnt_run_command "sysctl vm.swappiness=10"
+    __eubnt_run_command "sysctl vm.swappiness=10" || true
   fi
   if [[ $(cat /proc/sys/vm/vfs_cache_pressure) -ne 50 ]]; then
-    __eubnt_run_command "sysctl vm.vfs_cache_pressure=50"
+    __eubnt_run_command "sysctl vm.vfs_cache_pressure=50" || true
   fi
   echo
 }

@@ -6,6 +6,11 @@
 function __eubnt_is_command() {
   if command -v "${1:-}" &>/dev/null; then
     return 0
+  else
+    # shellcheck disable=SC2230
+    if which "${1:-}" &>/dev/null; then
+      return 0
+    fi
   fi
   return 1
 }
@@ -37,7 +42,7 @@ function __eubnt_is_port_in_use() {
     fi
     local grep_check="^${protocol_to_check}.*:${port_to_check} ${process_to_check}"
     if [[ "${4:-}" = "continuous" ]]; then
-      if netstat --listening --numeric --programs --${protocol_to_check} --continous | grep --line-buffer --quiet "${grep_check}"; then
+      if netstat --listening --numeric --programs --${protocol_to_check} --continuous | grep --line-buffer --quiet "${grep_check}"; then
         return 0
       fi
     else
@@ -75,7 +80,7 @@ function __eubnt_probe_port() {
     if ! wget --quiet --output-document - "${port_probe_url}${port_to_probe}" | grep --quiet "OPEN!"; then
       __eubnt_show_warning "It doesn't look like port ${port_to_probe} is open! Check your upstream firewall."
       echo
-      if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?" "return"; then
+      if ! __eubnt_question_prompt "Do you want to check port ${port_to_probe} again?"; then
         break_loop=true
       fi
     else
@@ -85,7 +90,9 @@ function __eubnt_probe_port() {
     fi
   done
   if [[ -n "${listener_pid:-}" ]]; then
-    __eubnt_run_command "kill -9 ${listener_pid}" "quiet"
+    if ! __eubnt_run_command "kill -9 ${listener_pid}" "quiet"; then
+      __eubnt_show_warning "Unable to kill process ID ${listener_pid}"
+    fi
   fi
   return ${return_code}
 }
@@ -97,7 +104,6 @@ function __eubnt_probe_port() {
 function __eubnt_version_compare() {
   if [[ -n "${1:-}" && -n "${3:-}" ]]; then
     if [[ ! "${1}" =~ ${__regex_version_full} || ! "${3}" =~ ${__regex_version_full} ]]; then
-      __eubnt_show_warning "Invalid version number passed at $(caller)"
       return 1
     fi
     IFS='.' read -r -a first_version <<< "${1}"
@@ -127,60 +133,59 @@ function __eubnt_version_compare() {
 # Make sure the command seems valid
 # Run the command in the background and show a spinner
 # Run the command in the foreground when in verbose mode
-# Wait for the command to finish and get the exit code
+# Don't show anything if run in quiet mode
+# Wait for the command to finish and return the exit code
 # $1: The full command to run as a string
-# $2: If set to "foreground" then the command will run in the foreground
-#     If set to "quiet" the output will be directed to the log file
-#     If set to "return" then output will be assigned to variable named in $3
-# $3: Name of variable to assign output value of the command if $2 is set to "return"
+# $2: If set to "foreground" then the output will be directed to the screen
+#     If set to "quiet" then quietly run the command without any signal it was run
+#     If not set then show a nice display and output to the log file
+# $3: Optionally pass a variable name to assign the command output
+# $4: If set to "force" then run the command without checking validity
 function __eubnt_run_command() {
   if [[ -z "${1:-}" ]]; then
     __eubnt_show_warning "No command given at $(caller)"
     return 1
   fi
-  local background_pid=""
-  local command_output=""
-  local command_return=""
   declare -a full_command=()
   IFS=' ' read -r -a full_command <<< "${1}"
-  if ! __eubnt_is_command "${full_command[0]}"; then
+  if ! __eubnt_is_command "${full_command[0]}" && [[ "${3:-}" != "force" ]]; then
     local found_package=""
     local unknown_command="${full_command[0]}"
-    __eubnt_install_package "apt-file"
-    __eubnt_run_command "apt-file update"
-    if [[ "${unknown_command}" != "apt-file" ]]; then
-      __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "return" "found_package"
-      if [[ -n "${found_package:-}" ]]; then
-        found_package="$(echo "${found_package}" | head --lines=1)"
-        if __eubnt_question_prompt "Do you want to install ${found_package}?" "return"; then
-          if ! __eubnt_install_package "${found_package}"; then
-            __eubnt_show_warning "Unable to install package ${found_package} to get command ${unknown_command} at $(caller)"
+    if __eubnt_install_package "apt-file"; then
+      if __eubnt_run_command "apt-file update"; then
+        if [[ "${unknown_command}" != "apt-file" ]]; then
+          if __eubnt_run_command "apt-file --package-only --regexp search .*bin\\/${unknown_command}$" "background" "found_package"; then
+            found_package="$(echo "${found_package:-}" | head --lines=1)"
+          fi
+          if [[ -n "${found_package:-}" ]]; then
+            if __eubnt_question_prompt "Do you want to install ${found_package} to get command ${unknown_command}?"; then
+              if ! __eubnt_install_package "${found_package}"; then
+                __eubnt_show_warning "Unable to install command ${unknown_command} at $(caller)"
+                return 1
+              fi
+            fi
+          else
+            __eubnt_show_warning "Unknown command ${unknown_command} at $(caller)"
             return 1
           fi
         fi
-      else
-        __eubnt_show_warning "Unknown command ${unknown_command} at $(caller)"
-        return 1
       fi
     fi
   fi
-  if [[ "${full_command[0]}" != "echo" ]]; then
-    __eubnt_add_to_log "${1}"
-  fi
-  local command_display="${1}"
+  local command_id="$(sed -e 's/.*-//' "/proc/sys/kernel/random/uuid")"
+  __eubnt_add_to_log "Start_${command_id}: ${1}"
+  local command_display="$(echo "${1}" | sed -e 's|$||g')"
   if [[ "${#1}" -gt 60 ]]; then
     command_display="${1:0:60}..."
   fi
+  local background_pid=""
+  local command_status=0
   if [[ ( -n "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
     "${full_command[@]}" | tee -a "${__script_log}"
-    command_return=$?
+    command_status=$?
   elif [[ "${2:-}" = "quiet" ]]; then
-    "${full_command[@]}" &>>"${__script_log}" || __eubnt_add_to_log "Error returned running ${1} at $(caller)"
-    command_return=$?
-  elif [[ "${2:-}" = "return" ]]; then
-    command_output="$(mktemp)"
-    "${full_command[@]}" &>>"${command_output}" &
-    background_pid=$!
+    "${full_command[@]}" &>>"${__script_log}"
+    command_status=$?
   else
     "${full_command[@]}" &>>"${__script_log}" &
     background_pid=$!
@@ -191,32 +196,37 @@ function __eubnt_run_command() {
       echo -e -n "\\rRunning ${command_display} [${__spinner:i++%${#__spinner}:1}]"
       sleep 0.5
       if [[ $i -gt 360 ]]; then
-        break
+        __eubnt_show_warning "Took too long running ${1} at $(caller)"
+        return 1
       fi
     done
     # shellcheck disable=SC2086
     wait $background_pid
-    command_return=$?
-    if [[ ${command_return} -gt 0 ]]; then
+    command_status=$?
+  fi
+  __eubnt_add_to_log "End_${command_id}: ${1}"
+  if [[ -n "${3:-}" ]]; then
+    local command_output="$(sed -n "/Start_${command_id}:/,/End_${command_id}:/{//b;p}" "${__script_log}")"
+    # shellcheck disable=SC2086
+    eval "${3}=\"${command_output:-}\""
+  fi
+  if [[ -n "${background_pid:-}" ]]; then
+    if [[ "${command_status:-}" -gt 0 ]]; then
       __eubnt_echo_and_log "\\rRunning ${command_display} [${__failed_mark}]\\n"
     else
       __eubnt_echo_and_log "\\rRunning ${command_display} [${__completed_mark}]\\n"
     fi
   fi
-  if [[ "${2:-}" = "return" && -n "${3:-}" && -e "${command_output:-}" && -s "${command_output:-}" && ${command_return} -eq 0 ]]; then
-    # shellcheck disable=SC2086
-    eval "${3}=\"$(cat ${command_output})\""
-    rm "${command_output}"
+  if [[ "${command_status:-}" -gt 0 ]]; then
+    __eubnt_add_to_log "Error returned running ${1} (${command_id}) at $(caller)"
   fi
-  if [[ ${command_return} -gt 0 ]]; then
-    return 1
-  fi
+  return ${command_status}
 }
 
 # Install package if needed and handle errors gracefully
-# $1: The name of the package to install
-# $2: An optional target release to use
-# $3: If set to "return" then return a status
+# $1: The name or file name of the package to install
+# $2: Optionally set a target release to use
+# $3: Optionally set to "reinstall" to force install if already installed
 function __eubnt_install_package() {
   if [[ "${1:-}" ]]; then
     if __eubnt_is_package_installed "${1}"; then
@@ -228,15 +238,17 @@ function __eubnt_install_package() {
     fi
     if ! __eubnt_is_package_installed "${1}"; then
       if [[ $? -gt 1 ]]; then
-        __eubnt_run_command "dpkg --remove --force-all ${1}"
+        __eubnt_run_command "dpkg --remove --force-all ${1}" || true
         __eubnt_common_fixes "noheader"
       fi
     fi
     if ! __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       __eubnt_setup_sources
       __eubnt_common_fixes "noheader"
+    else
+      local skip_simulate=true
     fi
-    if __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
+    if [[ -n "${skip_simulate:-}" ]] || __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
       local i=0
       while lsof /var/lib/dpkg/lock &>/dev/null; do
         echo -e -n "\\rWaiting for package manager to become available... [${__spinner:i++%${#__spinner}:1}]"
@@ -262,36 +274,44 @@ function __eubnt_install_package() {
         done
         # shellcheck disable=SC2086
         wait $background_pid
-        command_return=$?
-        if [[ "${command_return:-}" -gt 0 ]]; then
+        command_status=$?
+        if [[ "${command_status:-}" -gt 0 ]]; then
           __eubnt_echo_and_log "\\rInstalling package ${1} [${__failed_mark}]"
           echo
-          if [[ "${3:-}" = "return" ]]; then
-            return 1
-          fi
+          return 1
         else
           __eubnt_echo_and_log "\\rInstalling package ${1} [${__completed_mark}]"
           echo
         fi
       fi
     else
-      __eubnt_show_error "Unable to install package ${1} at $(caller)"
-      if [[ "${3:-}" = "return" ]]; then
-        return 1
-      fi
+      __eubnt_echo_and_log "Unable to install package ${1} at $(caller)"
+      return 1
     fi
   fi
 }
 
-# Check if is package is installed
+# Check if a package is installed
+# If it is installed return 0
+# If it is partially installed return 2
+# All other cases return 1
 # $1: The name of the package to check
 function __eubnt_is_package_installed() {
-  if [[ -n "${1:-}" ]]; then
-    local package_name=$(echo "${1}" | sed 's/=.*//')
-    if dpkg --list "${package_name}" 2>/dev/null | grep --quiet "^ii.* ${package_name} "; then
-      return 0
-    elif dpkg --list "${package_name}" 2>/dev/null | grep --quiet "^i[^i].* ${package_name}"; then
-      return 2
+  if [[ -z "${1:-}" ]]; then
+    __eubnt_add_to_log "No package given at $(caller)"
+    return 1
+  else
+    local package_name="$(echo "${1}" | sed 's/=.*//')"
+    local package_status="$(dpkg --list | grep " ${package_name} " | head --lines=1 | awk '{print $1}')"
+    if [[ -n "${package_status:-}" && "${#package_status}" -gt 0 ]]; then
+      if [[ "${package_status}" = "ii" ]]; then
+        return 0
+      elif [[ "${package_status:0:1}" = "r" \
+           || "${package_status:0:1}" = "u" \
+           || "${package_status:0:1}" = "p" \
+           || "${package_status}" =~ ^i[^i] ]]; then
+        return 2
+      fi
     fi
   fi
   return 1
@@ -323,11 +343,11 @@ function __eubnt_add_source() {
 function __eubnt_remove_source() {
   if [[ -n "${1:-}" && "${1:-}" = *".list" ]]; then
     find /etc/apt -name "*${1}" -exec mv --force {} {}.bak \;
-    __eubnt_run_command "apt-get update"
+    __eubnt_run_command "apt-get update" || true
     return 0
   elif [[ -n "${1:-}" ]]; then
     find /etc/apt -name "*.list" -exec sed -i "\|${1}|s|^|#|g" {} \;
-    __eubnt_run_command "apt-get update"
+    __eubnt_run_command "apt-get update" || true
     return 0
   fi
   return 1

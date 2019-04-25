@@ -14,13 +14,15 @@ function __eubnt_setup_certbot() {
   if [[ "${__os_version_name}" = "precise" || "${__os_version_name}" = "wheezy" ]]; then
     return 1
   fi
-  local source_backports=
-  local skip_certbot_questions=
-  local domain_name=
-  local email_address=
-  local resolved_domain_name=
-  local email_option=
-  local days_to_renewal=
+  local source_backports=""
+  local skip_certbot_questions=""
+  local domain_name=""
+  local valid_domain_name=
+  local email_address=""
+  local resolved_domain_name=""
+  local apparent_public_ip=""
+  local email_option=""
+  local days_to_renewal=""
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
   if [[ -n "${__quick_mode:-}" && -n "${__hostname_fqdn:-}" ]] || __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
     if ! __eubnt_is_command "certbot"; then
@@ -30,9 +32,15 @@ function __eubnt_setup_certbot() {
         fi
       fi
       if [[ "${__os_version_name}" = "jessie" ]]; then
-        __eubnt_run_command "apt-get install --yes --target-release jessie-backports python-cffi python-cryptography certbot"
+        if ! __eubnt_install_package "python-cffi python-cryptography certbot" "jessie-backports"; then
+          __eubnt_show_warning "Unable to install certbot"
+          return 1
+        fi
       else
-        __eubnt_install_package "certbot"
+        if ! __eubnt_install_package "certbot"; then
+          __eubnt_show_warning "Unable to install certbot"
+          return 1
+        fi
       fi
     fi
   else
@@ -47,31 +55,41 @@ function __eubnt_setup_certbot() {
   fi
   domain_name="${__hostname_fqdn:-}"
   if [[ -z "${domain_name:-}" ]]; then
-    __eubnt_run_command "hostname --fqdn" "return" "domain_name"
+    __eubnt_run_command "hostname --fqdn" "" "domain_name"
   fi
   if [[ -z "${__quick_mode:-}" ]]; then
-    __eubnt_get_user_input "Domain name to use (${domain_name:-}): " "domain_name" "optional"
-    resolved_domain_name=$(dig +short "${domain_name}" @8.8.8.8 | tail --lines=1)
-    if [[ "${__apparent_public_ip_address:-}" =~ ${__regex_ip_address} && ( ! "${resolved_domain_name:-}" =~ ${__regex_ip_address} || ( "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${__apparent_public_ip_address}" != "${resolved_domain_name}" ) ) ]]; then
+    while [[ -z "${valid_domain_name}" ]]; do
       echo
-      __eubnt_show_warning "The domain ${domain_name} does not resolve to ${__apparent_public_ip_address}"
-      echo
-      if ! __eubnt_question_prompt "" "return"; then
-        return 1
+      __eubnt_get_user_input "Domain name to use (${domain_name:-}): " "domain_name" "optional"
+      # shellcheck disable=SC2086
+      resolved_domain_name="$(dig +short ${domain_name} @${__recommended_nameserver} | tail --lines=1)"
+      apparent_public_ip="$(wget --quiet --output-document - "${__ip_lookup_url}")"
+      if [[ "${apparent_public_ip:-}" =~ ${__regex_ip_address} && ( ! "${resolved_domain_name:-}" =~ ${__regex_ip_address} || ( "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${apparent_public_ip}" != "${resolved_domain_name}" ) ) ]]; then
+        __eubnt_show_warning "The domain ${domain_name} does not appear to resolve to ${apparent_public_ip}"
+        echo
+        if ! __eubnt_question_prompt "Do you want to re-enter the domain name?" "return" "n"; then
+          echo
+          valid_domain_name=true
+        fi
+      else
+        echo
+        valid_domain_name=true
       fi
-    fi
+    done
   fi
   days_to_renewal=0
   if certbot certificates --domain "${domain_name:-}" | grep --quiet "Domains: "; then
-    __eubnt_run_command "certbot certificates --domain ${domain_name}" "foreground"
-    __eubnt_show_notice "\\nLet's Encrypt has been setup previously\\n"
+    __eubnt_run_command "certbot certificates --domain ${domain_name}" "foreground" || true
+    echo
+    __eubnt_show_notice "Let's Encrypt has been setup previously"
+    echo
     days_to_renewal=$(certbot certificates --domain "${domain_name}" | grep --only-matching --max-count=1 "VALID: .*" | awk '{print $2}')
     skip_certbot_questions=true
   fi
   if [[ -z "${skip_certbot_questions:-}" && -z "${__quick_mode:-}" ]]; then
-    __eubnt_get_user_input "\\nEmail address for renewal notifications (optional): " "email_address" "optional"
+    echo
+    __eubnt_get_user_input "Email address for renewal notifications (optional): " "email_address" "optional"
   fi
-  echo
   __eubnt_show_warning "Let's Encrypt will verify your domain using HTTP (TCP port 80). This\\nscript will automatically allow HTTP through the firewall on this machine only.\\nPlease make sure firewalls external to this machine are set to allow HTTP.\\n"
   if [[ -n "${email_address:-}" ]]; then
     email_option="--email ${email_address}"
@@ -134,16 +152,18 @@ EOF
     local force_renewal="--keep-until-expiring"
     local run_mode="--keep-until-expiring"
     if [[ "${days_to_renewal}" -ge 30 ]]; then
-      if __eubnt_question_prompt "\\nDo you want to force certificate renewal?" "return" "n"; then
+      if __eubnt_question_prompt "Do you want to force certificate renewal?" "return" "n"; then
         force_renewal="--force-renewal"
       fi
+      echo
     fi
     if [[ -n "${__script_debug:-}" ]]; then
       run_mode="--dry-run"
     else
-      if __eubnt_question_prompt "\\nDo you want to do a dry run?" "return" "n"; then
+      if __eubnt_question_prompt "Do you want to do a dry run?" "return" "n"; then
         run_mode="--dry-run"
       fi
+      echo
     fi
     # shellcheck disable=SC2086
     if certbot certonly --agree-tos --standalone --preferred-challenges http-01 --http-01-port 80 --pre-hook ${pre_hook_script} --post-hook ${post_hook_script} --domain ${domain_name} ${email_option} ${force_renewal} ${run_mode}; then

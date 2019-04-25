@@ -24,17 +24,18 @@ function __eubnt_allow_hosts_ufw_app() {
 # Adds an app profile that includes all UniFi Network ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
-  if [[ -n "${__ufw_skip:-}" ]]; then
+  if [[ -n "${__ufw_disable:-}" ]]; then
+    if __eubnt_is_command "ufw"; then
+      __eubnt_run_command "ufw --force disable" || true
+    fi
     return 1
   fi
   __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
   if ! __eubnt_is_package_installed "ufw"; then
-    if ! __eubnt_question_prompt "Do you want to install UFW?" "return"; then
-      return 1
+    if __eubnt_question_prompt "Do you want to install UFW?"; then
+      __eubnt_install_package "ufw"
     else
-      if ! __eubnt_install_package "ufw"; then
-        return 1
-      fi
+      return 1
     fi
   fi
   declare -a apps_to_allow=()
@@ -88,16 +89,21 @@ EOF
   fi
   __eubnt_show_notice "Current UFW status:"
   echo
-  __eubnt_run_command "ufw app update all" "quiet"
-  __eubnt_run_command "ufw status verbose" "foreground"
-  echo
+  __eubnt_run_command "ufw app update all" "quiet" || true
+  __eubnt_run_command "ufw status verbose" "foreground" || true
+  if ! ufw status | grep --quiet " active"; then
+    echo
+  fi
   if [[ ${#apps_to_allow[@]} -gt 0 ]]; then
-    if __eubnt_question_prompt "Do you want to setup or make changes to UFW now?" "return" "y"; then
+    if __eubnt_question_prompt "Do you want to setup or make changes to UFW now?"; then
       if ufw status | grep --quiet " active"; then
-        if __eubnt_question_prompt "Do you want to reset your current UFW rules?" "return" "y"; then
-          __eubnt_run_command "ufw --force reset"
+        echo
+        if __eubnt_question_prompt "Do you want to reset your current UFW rules?"; then
+          echo
+          __eubnt_run_command "ufw --force reset" || true
         fi
       fi
+      local activate_ufw=
       local hosts_to_allow=""
       local allow_access="n"
       local apps_to_check="$(IFS=$'|'; echo "${apps_to_allow[*]}")"
@@ -110,44 +116,55 @@ EOF
           allow_access="y"
         fi
         echo
-        __eubnt_run_command "ufw app info ${allowed_app}" "foreground"
+        __eubnt_run_command "ufw app info ${allowed_app}" "foreground" || true
         echo
         if __eubnt_question_prompt "Do you want to allow access to these ports?" "return" "${allow_access:-n}"; then
           hosts_to_allow=""
+          activate_ufw=true
           if [[ -z "${__quick_mode:-}" ]]; then
             echo
             __eubnt_get_user_input "IP(s) to allow, separated by commas, default is 'any': " "hosts_to_allow" "optional"
             echo
           fi
           if [[ -z "${hosts_to_allow:-}" ]]; then
-            __eubnt_run_command "ufw allow from any to any app ${allowed_app}"
+            if ! __eubnt_run_command "ufw allow from any to any app ${allowed_app}"; then
+              __eubnt_show_warning "Unable to allow app ${allowed_app:-}"
+            fi
           else
             if __eubnt_allow_hosts_ufw_app "${allowed_app}" "${hosts_to_allow}"; then
               hosts_to_allow=""
             fi
           fi
         else
-          __eubnt_run_command "ufw --force delete allow ${allowed_app}" "quiet"
+          __eubnt_run_command "ufw --force delete allow ${allowed_app}" "quiet" || true
         fi
       done
-      echo "y" | ufw enable >>"${__script_log}"
-      __eubnt_run_command "ufw reload"
-      echo
+      if [[ -n "${activate_ufw:-}" ]]; then
+        echo
+        echo "y" | ufw enable >>"${__script_log}"
+        __eubnt_run_command "ufw reload" || true
+      fi
       __eubnt_show_notice "Updated UFW status:"
       echo
-      __eubnt_run_command "ufw status verbose" "foreground"
+      __eubnt_run_command "ufw status verbose" "foreground" || true
+    else
+      echo
     fi
   fi
-  if __eubnt_probe_port "available"; then
+  if ufw status | grep --quiet " active"; then
     if __eubnt_question_prompt "Do you want to check if TCP ports appear to be accessible?" "return" "n"; then
-      local port_list=($(ufw status verbose | grep ".*\/tcp.*ALLOW IN" | sed 's|/.*||'))
-      local post_to_probe=""
-      __eubnt_run_command "ufw --force disable" "quiet"
-      for port_number in "${!port_list[@]}"; do
-        port_to_probe="${port_list[$port_number]}"
-        __eubnt_probe_port "${port_to_probe}"
-      done
-      echo "y" | ufw enable >>"${__script_log}"
+      if __eubnt_probe_port "available"; then
+        local port_list=($(ufw status verbose | grep --invert-match "(v6)" | grep ".*\/tcp.*ALLOW IN" | sed 's|/.*||' | tr ',' '\n' | sort --unique))
+        local post_to_probe=""
+        __eubnt_run_command "ufw --force disable" "quiet" || true
+        for port_number in "${!port_list[@]}"; do
+          port_to_probe="${port_list[$port_number]}"
+          __eubnt_probe_port "${port_to_probe}"
+        done
+        echo "y" | ufw enable >>"${__script_log}"
+      else
+        __eubnt_show_warning "Port probing service is unavailable!"
+      fi
     fi
   fi
 }

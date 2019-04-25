@@ -5,7 +5,6 @@
 # $1: The UBNT product to check
 # $2: The version number to check, can be like "5", "5.9" or "5.9.29"
 # $3: If set to "url" then return the full URL to the download file
-# $4: The variable to assign the found version number or URL, if not set then result will be echoed
 function __eubnt_ubnt_get_product() {
   if [[ -n "${1:-}" && -n "${2:-}" ]]; then
     local ubnt_product=""
@@ -50,15 +49,19 @@ function __eubnt_ubnt_get_product() {
         version_patch="&filter=eq~~version_patch~~${version_array[2]}"
       fi
       local product="?filter=eq~~product~~${ubnt_product}"
-      local product_channel="&filter=eq~~channel~~release"
+      local product_channel="&filter=eq~~channel~~"
       local product_platform="&filter=eq~~platform~~"
       if [[ "${ubnt_product}" = "aircontrol" ]]; then
+        product_channel="${product_channel}release"
         product_platform="${product_platform}cp"
       elif [[ "${ubnt_product}" = "unifi-controller" ]]; then
+        product_channel="${product_channel}release"
         product_platform="${product_platform}debian"
       elif [[ "${ubnt_product}" = "unifi-protect" && -n "${__architecture:-}" ]]; then
+        product_channel="${product_channel}release"
         product_platform="${product_platform}Debian9_${__architecture}"
       elif [[ "${ubnt_product}" = "unifi-video" && -n "${__architecture:-}" ]]; then
+        product_channel="${product_channel}release"
         if [[ -n "${__is_ubuntu:-}" ]]; then
           if [[ -n "${__os_version:-}" && "${__os_version//.}" -lt 1604 ]]; then
             product_platform="${product_platform}Ubuntu14.04_${__architecture}"
@@ -70,7 +73,7 @@ function __eubnt_ubnt_get_product() {
         fi
       fi
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
-        update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
+        update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=10"
         declare -a wget_command=(wget --quiet --output-document - "${update_url}")
         if [[ "${3:-}" = "url" ]]; then
           # shellcheck disable=SC2068
@@ -81,19 +84,11 @@ function __eubnt_ubnt_get_product() {
         fi
       fi
     fi
-    if [[ -n "${download_url:-}" ]]; then
-      if [[ -n "${4:-}" ]]; then
-        eval "${4}=\"${download_url}\""
-      else
-        echo "${download_url}"
-      fi
+    if [[ "${download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+      echo -n "${download_url}"
       return 0
-    elif [[ -n "${found_version:-}" ]]; then
-      if [[ -n "${4:-}" ]]; then
-        eval "${4}=\"${found_version}\""
-      else
-        echo "${found_version}"
-      fi
+    elif [[ "${found_version:-}" =~ ${__regex_version_full} ]]; then
+      echo -n "${found_version}"
       return 0
     fi
   fi

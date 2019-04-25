@@ -1,30 +1,34 @@
 ### Tests
 ##############################################################################
+if [[ -n "${__script_test_mode:-}" ]]; then
+  if [[ -f "${__script_tests:-}" ]]; then
+    source "${__script_tests}"
+  fi
+  exit
+fi
 
 ### Execution of script
 ##############################################################################
 
-ln --force --symbolic "${__script_log}" "${__script_log_dir}/latest.log"
 __eubnt_invoke_cli
 __eubnt_script_colors
 if [[ -z "${__accept_license:-}" ]]; then
-  __eubnt_show_header
+  __eubnt_show_header "License Agreement"
   __eubnt_show_license
-  __eubnt_show_notice "By using this script you agree to the license\\n"
+  __eubnt_show_notice "By using this script you agree to the license"
+  echo
   __eubnt_show_timer "5" "${__colors_notice_text}Thanks for playing! Here we go!${__colors_default}"
   echo
 fi
-__eubnt_show_header "Checking system..."
+__eubnt_show_header "Checking system...\\n"
 __eubnt_install_dependencies
-__eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet"
-if ! tail --lines=2 "${__script_log}" | grep --quiet --extended-regexp "${__regex_ip_address}"; then
+ubnt_dl_ip=""
+__eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
+ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
+if [[ ! "${ubnt_dl_ip:-}" =~ ${__regex_ip_address} ]]; then
   __eubnt_show_error "Unable to resolve ${__ubnt_dl} using the following nameservers: ${__nameservers}"
 else
   __eubnt_show_success "DNS appears to be working!"
-fi
-__apparent_public_ip_address="$(wget --quiet --output-document - "sprocket.link/ip" 2>/dev/null)"
-if [[ -n "${__apparent_public_ip_address:-}" ]]; then
-  __eubnt_show_text "Apparent public IP address is ${__colors_bold_text}${__apparent_public_ip_address}${__colors_default}"
 fi
 show_disk_free_space="$([[ "${__disk_free_space_gb}" -lt 2 ]] && echo "${__disk_free_space_mb}MB" || echo "${__disk_free_space_gb}GB" )"
 __eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
@@ -43,7 +47,7 @@ fi
 show_swap_total="$([[ "${__swap_total_gb}" -le 1 ]] && echo "${__swap_total_mb}MB" || echo "${__swap_total_gb}GB" )"
 __eubnt_show_text "Swap total size is ${__colors_bold_text}${show_swap_total}${__colors_default}"
 if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
-  if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?" "return"; then
+  if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?"; then
     __eubnt_setup_swap_file
   fi
 fi
@@ -54,31 +58,36 @@ if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
   fi
 fi
 echo
-if [[ -z "${__quick_mode:-}" ]]; then
+if [[ -n "${__is_cloud_key:-}" ]]; then
+  __eubnt_show_warning "This script isn't fully tested with Cloud Key!\\n"
+  __eubnt_question_prompt "" "exit"
+else
   __eubnt_show_timer
 fi
-__eubnt_common_fixes
-__eubnt_setup_sources
-__eubnt_install_updates
-if [[ -f /var/run/reboot-required ]]; then
-  echo
-  __eubnt_show_warning "A reboot is recommended.\\nRun this script again after reboot.\\n"
-  # TODO: Restart the script automatically after reboot
-  if [[ -n "${__quick_mode:-}" ]]; then
-    __eubnt_show_warning "The system will automatically reboot in 10 seconds.\\n"
-    sleep 10
-  fi
-  if __eubnt_question_prompt "Do you want to reboot now?" "return"; then
-    __eubnt_show_warning "Exiting script and rebooting system now!"
-    __reboot_system=true
-    exit 0
+if [[ -z "${__is_cloud_key:-}" ]]; then
+  __eubnt_common_fixes
+  __eubnt_setup_sources
+  __eubnt_install_updates
+  if [[ -f /var/run/reboot-required ]]; then
+    echo
+    __eubnt_show_warning "A reboot is recommended. Run this script again after reboot."
+    # TODO: Restart the script automatically after reboot
+    if [[ -n "${__quick_mode:-}" ]]; then
+      __eubnt_show_warning "The system will automatically reboot in 10 seconds."
+      sleep 10
+    fi
+    if __eubnt_question_prompt "Do you want to reboot now?"; then
+      __eubnt_show_warning "Exiting script and rebooting system now!"
+      __reboot_system=true
+      exit 0
+    fi
   fi
 fi
 if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
   __eubnt_install_unifi_controller || true
 fi
-__eubnt_setup_ssh_server || true
 __eubnt_setup_certbot || true
-__eubnt_setup_ufw || true
-__eubnt_show_success "\\nDone!\\n"
-sleep 3
+if [[ -z "${__is_cloud_key:-}" ]]; then
+  __eubnt_setup_ssh_server || true
+  __eubnt_setup_ufw || true
+fi
