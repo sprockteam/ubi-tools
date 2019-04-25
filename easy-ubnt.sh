@@ -10,12 +10,12 @@
 __script_title="Easy UBNT"
 __script_name="easy-ubnt"
 __script_name_short="eubnt"
-__script_version="v0.6.2-rc.1"
+__script_version="v0.6.2-rc.2"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Frank Gabriel (Frankedinven)
 Adrian Miller (adrianmmiller)"
-__script_mentions="florisvdk, Mattgphoto, samsawyer, SatisfyIT"
+__script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT"
 
 ### Copyrights, Mentions and Credits
 ##############################################################################
@@ -1769,11 +1769,6 @@ function __eubnt_setup_sources() {
 # Ask if packages critical to UniFi Network Controller function should be updated or not
 function __eubnt_install_updates() {
   __eubnt_show_header "Installing updates...\\n"
-  local java_update_available=
-  local mongodb_update_available=
-  local java_package="openjdk-8-jre-headless"
-  local java_held=
-  local mongodb_held=
   local updates_available=""
   __eubnt_run_command "apt-get update" || true
   __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"
@@ -1783,42 +1778,10 @@ function __eubnt_install_updates() {
     if __eubnt_question_prompt "Install available package upgrades?"; then
       echo
       __eubnt_install_package "unattended-upgrades" || true
-      
-      if __eubnt_is_package_installed "${}"; then
-        java_update_available=$(apt-cache policy "${__java_package_installed}" | awk '/Candidate/{print $2}' | sed 's/-.*//')
+      if __eubnt_run_command "apt-get dist-upgrade --yes"; then
+        __run_autoremove=true
       fi
-      if __eubnt_is_package_installed "${__mongodb_package_installed:-}"; then
-        mongodb_update_available=$(apt-cache policy "${__mongodb_package_installed}" | awk '/Candidate/{print $2}' | sed 's/.*://; s/-.*//')
-      fi
-      if [[ -n "${mongodb_update_available:-}" && "${mongodb_update_available:-}" != "${__mongodb_version_installed}" ]]; then
-        __eubnt_show_text "MongoDB ${__mongodb_version_installed} is installed, ${__colors_warning_text}version ${mongodb_update_available} is available"
-        echo
-        if ! __eubnt_question_prompt "Do you want to update MongoDB to ${mongodb_update_available}?"; then
-          if __eubnt_run_command "apt-mark hold ${__mongodb_package_installed}"; then
-            mongodb_held=true
-          fi
-        fi
-        echo
-      fi
-      if [[ -n "${java_update_available:-}" && "${java_update_available:-}" != "${__java_version_installed}" ]]; then
-        __eubnt_show_text "Java ${__java_version_installed} is installed, ${__colors_warning_text}version ${java_update_available} is available"
-        echo
-        if ! __eubnt_question_prompt "Do you want to update Java to ${java_update_available}?"; then
-          if __eubnt_run_command "apt-mark hold ${__java_package_installed}"; then
-            java_held=true
-          fi
-        fi
-        echo
-      fi
-      __eubnt_run_command "apt-get dist-upgrade --yes" || true
-      __run_autoremove=true
     fi
-  fi
-  if [[ -n "${java_held:-}" ]]; then
-    __eubnt_run_command "apt-mark unhold ${__java_package_installed}" || true
-  fi
-  if [[ -n "${mongodb_held:-}" ]]; then
-    __eubnt_run_command "apt-mark unhold ${__mongodb_package_installed}" || true
   fi
 }
 
@@ -1859,15 +1822,13 @@ function __eubnt_set_java_alternative() {
 # Install MongoDB
 function __eubnt_install_mongodb()
 {
-  if [[ -z "${__mongodb_package_installed:-}" ]]; then
-    if [[ "${1:-}" != "noheader" ]]; then
-      __eubnt_show_header "Installing MongoDB...\\n"
-    fi
-    __eubnt_setup_sources "mongodb"
-    if ! __eubnt_install_package "${__install_mongodb_package:-}"; then
-      __eubnt_show_warning "Unable to install MongoDB at $(caller)"
-      return 1
-    fi
+  if [[ "${1:-}" != "noheader" ]]; then
+    __eubnt_show_header "Installing MongoDB...\\n"
+  fi
+  __eubnt_setup_sources "mongodb"
+  if ! __eubnt_install_package "${__install_mongodb_package:-mongodb}"; then
+    __eubnt_show_warning "Unable to install MongoDB at $(caller)"
+    return 1
   fi
 }
 
@@ -1955,6 +1916,9 @@ function __eubnt_setup_ssh_server() {
 
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
+  if [[ -n "${__quick_mode:-}" && -z "${__hostname_fqdn:-}" ]]; then
+    return 1
+  fi
   if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
     __eubnt_initialize_unifi_controller_variables
     if [[ ! -d "${__unifi_controller_data_dir:-}" || ! -f "${__unifi_controller_system_properties:-}" ]]; then
@@ -1976,7 +1940,7 @@ function __eubnt_setup_certbot() {
   local email_option=""
   local days_to_renewal=""
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
-  if [[ -n "${__quick_mode:-}" && -n "${__hostname_fqdn:-}" ]] || __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
+  if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
     if ! __eubnt_is_command "certbot"; then
       if [[ -n "${__is_ubuntu:-}" ]]; then
         if ! __eubnt_setup_sources "certbot"; then

@@ -3,6 +3,9 @@
 
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
+  if [[ -n "${__quick_mode:-}" && -z "${__hostname_fqdn:-}" ]]; then
+    return 1
+  fi
   if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
     __eubnt_initialize_unifi_controller_variables
     if [[ ! -d "${__unifi_controller_data_dir:-}" || ! -f "${__unifi_controller_system_properties:-}" ]]; then
@@ -24,7 +27,7 @@ function __eubnt_setup_certbot() {
   local email_option=""
   local days_to_renewal=""
   __eubnt_show_header "Setting up Let's Encrypt...\\n"
-  if [[ -n "${__quick_mode:-}" && -n "${__hostname_fqdn:-}" ]] || __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
+  if __eubnt_question_prompt "Do you want to (re)setup Let's Encrypt?" "return" "n"; then
     if ! __eubnt_is_command "certbot"; then
       if [[ -n "${__is_ubuntu:-}" ]]; then
         if ! __eubnt_setup_sources "certbot"; then

@@ -10,12 +10,12 @@
 __script_title="Easy UBNT"
 __script_name="easy-ubnt"
 __script_name_short="eubnt"
-__script_version="v0.6.2-rc.1"
+__script_version="v0.6.2-rc.2"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Frank Gabriel (Frankedinven)
 Adrian Miller (adrianmmiller)"
-__script_mentions="florisvdk, Mattgphoto, samsawyer, SatisfyIT"
+__script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT"
 
 ### Copyrights, Mentions and Credits
 ##############################################################################
