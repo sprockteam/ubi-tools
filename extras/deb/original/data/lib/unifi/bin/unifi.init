@@ -1,0 +1,329 @@
+#!/bin/bash
+#
+# /etc/init.d/UniFi -- startup script for Ubiquiti UniFi
+#
+#
+### BEGIN INIT INFO
+# Provides:		unifi
+# Required-Start:	$local_fs $remote_fs $network
+# Required-Stop:	$local_fs $remote_fs $network
+# Default-Start:	2 3 4 5
+# Default-Stop:		0 1 6
+# Short-Description:	Ubiquiti UniFi
+# Description:		Ubiquiti UniFi Controller
+### END INIT INFO
+
+set_java_home () {
+	arch=`dpkg --print-architecture 2>/dev/null`
+	support_java_ver='8'
+	java_list=''
+	for v in ${support_java_ver}; do
+		java_list=`echo ${java_list} java-$v-openjdk-${arch}`
+		java_list=`echo ${java_list} java-$v-openjdk`
+	done
+
+	# appending Oracle JDK8 (make-jpkg version) to list
+	for a in i386 amd64 armhf arm64; do
+		java_list=$(echo ${java_list} oracle-java8-jdk-${a}/jre)
+	done
+	# appending Oracle JRE8 (make-jpkg version) to list
+	for a in i386 amd64; do
+		java_list=$(echo ${java_list} oracle-java8-jre-${a})
+	done
+	# appending Oracle JDK8 (old make-jpkg version) to list
+	for a in x64 i586 arm32-vfp-hflt arm64-vfp-hflt; do
+		java_list=$(echo ${java_list} jdk-8-oracle-${a}/jre)
+	done
+	# appending Oracle JRE8 (old make-jpkg version) to list
+	for a in x64 i586; do
+		java_list=$(echo ${java_list} jre-8-oracle-${a})
+	done
+
+	# appending Oracle JDK8 (PPA version https://launchpad.net/~webupd8team/+archive/ubuntu/java) to list
+	java_list=$(echo ${java_list} java-8-oracle/jre)
+
+	cur_java=`update-alternatives --query java | awk '/^Value: /{print $2}'`
+	cur_real_java=`readlink -f ${cur_java} 2>/dev/null`
+	for jvm in ${java_list}; do
+		jvm_real_java=`readlink -f /usr/lib/jvm/${jvm}/bin/java 2>/dev/null`
+		[ "${jvm_real_java}" != "" ] || continue
+		if [ "${jvm_real_java}" == "${cur_real_java}" ]; then
+			JAVA_HOME="/usr/lib/jvm/${jvm}"
+			return
+		fi
+	done
+
+	alts_java=`update-alternatives --query java | awk '/^Alternative: /{print $2}'`
+	for cur_java in ${alts_java}; do
+		cur_real_java=`readlink -f ${cur_java} 2>/dev/null`
+		for jvm in ${java_list}; do
+			jvm_real_java=`readlink -f /usr/lib/jvm/${jvm}/bin/java 2>/dev/null`
+			[ "${jvm_real_java}" != "" ] || continue
+			if [ "${jvm_real_java}" == "${cur_real_java}" ]; then
+				JAVA_HOME="/usr/lib/jvm/${jvm}"
+				return
+			fi
+		done
+	done
+
+	JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${arch}
+}
+
+
+dir_symlink_fix() {
+	local DSTDIR=$1
+	local SYMLINK=$2
+	local MYUSER=$3
+	local MYGROUP=$4
+	local MYMODE=$5
+
+	[ -d ${DSTDIR} ] || install -o ${MYUSER} -g ${MYGROUP} -m ${MYMODE} -d ${DSTDIR}
+	[ -d ${SYMLINK} -a ! -L ${SYMLINK} ] && mv ${SYMLINK} `mktemp -u ${SYMLINK}.XXXXXXXX`
+	[ "$(readlink ${SYMLINK})" = "${DSTDIR}" ] || (rm -f ${SYMLINK} && ln -sf ${DSTDIR} ${SYMLINK})
+}
+
+file_symlink_fix() {
+	local DSTFILE=$1
+	local SYMLINK=$2
+
+	if [ -f ${DSTFILE} ]; then
+		[ -f ${SYMLINK} -a ! -L ${SYMLINK} ] && mv ${SYMLINK} `mktemp -u ${SYMLINK}.XXXXXXXX`
+		[ "$(readlink ${SYMLINK})" = "${DSTFILE}" ] || (rm -f ${SYMLINK} && ln -sf ${DSTFILE} ${SYMLINK})
+	fi
+}
+
+manual_stop_unifi() {
+	local MYDIR=$1
+	local MYUSER=$2
+	local MYGROUP=$3
+	local MYMODE=$4
+
+	TMP_UNIFI_STOP=$(mktemp)
+	rm -f ${MYDIR}/launcher.looping
+	install -o ${MYUSER} -g ${MYGROUP} -m ${MYMODE} ${TMP_UNIFI_STOP} ${MYDIR}/server.stop
+	rm -f ${TMP_UNIFI_STOP}
+}
+
+NAME="unifi"
+DESC="Ubiquiti UniFi Controller"
+
+BASEDIR="/usr/lib/unifi"
+MAINCLASS="com.ubnt.ace.Launcher"
+
+PATH=/bin:/usr/bin:/sbin:/usr/sbin
+
+UMASK=027
+FILE_MODE=$(printf '%x' $((0x7777 - 0x${UMASK} & 0x0666)))
+DIR_MODE=$(printf '%x' $((0x7777 - 0x${UMASK} & 0x0777)))
+
+[ -f /etc/default/rcS ] && . /etc/default/rcS
+. /lib/lsb/init-functions
+
+MONGOPORT=27117
+
+CODEPATH=${BASEDIR}
+DATALINK=${BASEDIR}/data
+LOGLINK=${BASEDIR}/logs
+RUNLINK=${BASEDIR}/run
+
+JAVA_ENTROPY_GATHER_DEVICE=
+JVM_MAX_HEAP_SIZE=1024M
+JVM_INIT_HEAP_SIZE=
+UNIFI_JVM_EXTRA_OPTS=
+
+ENABLE_UNIFI=yes
+JVM_EXTRA_OPTS=
+JSVC_EXTRA_OPTS=
+[ -f /etc/default/${NAME} ] && . /etc/default/${NAME}
+
+[ "x${ENABLE_UNIFI}" != "xyes" ] && exit 0
+
+DATADIR=${UNIFI_DATA_DIR:-/var/lib/${NAME}}
+LOGDIR=${UNIFI_LOG_DIR:-/var/log/${NAME}}
+RUNDIR=${UNIFI_RUN_DIR:-/var/run/${NAME}}
+
+JVM_EXTRA_OPTS="${JVM_EXTRA_OPTS} -Dunifi.datadir=${DATADIR} -Dunifi.logdir=${LOGDIR} -Dunifi.rundir=${RUNDIR}"
+PIDFILE="/var/run/${NAME}.pid"
+
+if [ ! -z "${JAVA_ENTROPY_GATHER_DEVICE}" ]; then
+	JVM_EXTRA_OPTS="${JVM_EXTRA_OPTS} -Djava.security.egd=${JAVA_ENTROPY_GATHER_DEVICE}"
+fi
+
+if [ ! -z "${JVM_MAX_HEAP_SIZE}" ]; then
+	JVM_EXTRA_OPTS="${JVM_EXTRA_OPTS} -Xmx${JVM_MAX_HEAP_SIZE}"
+fi
+
+if [ ! -z "${JVM_INIT_HEAP_SIZE}" ]; then
+	JVM_EXTRA_OPTS="${JVM_EXTRA_OPTS} -Xms${JVM_INIT_HEAP_SIZE}"
+fi
+
+if [ ! -z "${UNIFI_JVM_EXTRA_OPTS}" ]; then
+	JVM_EXTRA_OPTS="${JVM_EXTRA_OPTS} ${UNIFI_JVM_EXTRA_OPTS}"
+fi
+
+JVM_OPTS="${JVM_EXTRA_OPTS} -Djava.awt.headless=true -Dfile.encoding=UTF-8"
+
+[ "x${JAVA_HOME}" != "x" ] || set_java_home
+
+# JSVC - for running java apps as services
+JSVC=$(command -v jsvc)
+if [ -z ${JSVC} -o ! -x ${JSVC} ]; then
+	log_failure_msg "${DESC}: jsvc is missing!"
+	exit 1
+fi
+
+UNIFI_USER=${UNIFI_USER:-unifi}
+UNIFI_GROUP=$(id -gn ${UNIFI_USER})
+
+umask ${UMASK}
+
+# fix path for ace
+dir_symlink_fix ${DATADIR} ${DATALINK} ${UNIFI_USER} ${UNIFI_GROUP} ${DIR_MODE}
+dir_symlink_fix ${LOGDIR} ${LOGLINK} ${UNIFI_USER} ${UNIFI_GROUP} ${DIR_MODE}
+dir_symlink_fix ${RUNDIR} ${RUNLINK} ${UNIFI_USER} ${UNIFI_GROUP} ${DIR_MODE}
+[ -z "${UNIFI_SSL_KEYSTORE}" ] || file_symlink_fix ${UNIFI_SSL_KEYSTORE} ${DATALINK}/keystore
+
+MONGOLOCK="${DATADIR}/db/mongod.lock"
+# check whether jsvc requires -cwd option
+${JSVC} -java-home ${JAVA_HOME} -cwd / -help >/dev/null 2>&1
+if [ $? -eq 0 ] ; then
+	JSVC_OPTS="${JSVC_OPTS} -cwd ${BASEDIR}"
+fi
+
+UNIFI_UID=$(id -u ${UNIFI_USER})
+DATADIR_UID=$(stat ${DATADIR} -Lc %u)
+if [ ${UNIFI_UID} -ne ${DATADIR_UID} ]; then
+	msg="${NAME} cannot start. Please create ${UNIFI_USER} user, and chown -R ${UNIFI_USER} ${DATADIR} ${LOGDIR} ${RUNDIR}"
+	logger $msg
+	echo $msg >&2
+	exit 1
+fi
+
+#JSVC_OPTS="-debug"
+
+JSVC_OPTS="${JSVC_OPTS}\
+ -home ${JAVA_HOME} \
+ -cp /usr/share/java/commons-daemon.jar:${BASEDIR}/lib/ace.jar \
+ -pidfile ${PIDFILE} \
+ -procname ${NAME} \
+ -outfile SYSLOG \
+ -errfile SYSLOG \
+ -umask ${UMASK} \
+ -user ${UNIFI_USER} \
+ ${JSVC_EXTRA_OPTS} \
+ ${JVM_OPTS}"
+
+[ -f /etc/default/rcS ] && . /etc/default/rcS
+. /lib/lsb/init-functions
+
+cd ${BASEDIR}
+
+is_not_running() {
+	start-stop-daemon --test --start --pidfile "${PIDFILE}" \
+		--startas "${JAVA_HOME}/bin/java" >/dev/null
+	RC=$?
+	return ${RC}
+}
+
+case "$1" in
+	start)
+		log_daemon_msg "Starting ${DESC}" "${NAME}"
+		[ ! -f ${DATADIR}/system.properties ] || api_port=$(grep "^[^#;]" ${DATADIR}/system.properties | sed -n 's/unifi.http.port=\([0-9]\+\)/\1/p')
+		api_port=${api_port:-8080}
+		if is_not_running; then
+			${JSVC} ${JSVC_OPTS} ${MAINCLASS} start
+			sleep 1
+			if is_not_running; then
+				log_end_msg 1
+			else
+				MAX_WAIT=60
+				http_code=$(curl -s --connect-timeout 1 -o /dev/null -w "%{http_code}" htttp://localhost:${api_port}/status)
+				for i in `seq 1 ${MAX_WAIT}` ; do
+					if [ "${http_code}" != "200" ]; then
+						sleep 1
+						http_code=$(curl -s --connect-timeout 1 -o /dev/null -w "%{http_code}" http://localhost:${api_port}/status)
+					else
+						break
+					fi
+				done
+				if [ "${http_code}" != "200" ]; then
+					log_end_msg 1
+				else
+					log_end_msg 0
+				fi
+			fi
+		else
+			log_progress_msg "(already running)"
+			log_end_msg 1
+		fi
+	;;
+	stop)
+		log_daemon_msg "Stopping ${DESC}" "${NAME}"
+		if is_not_running; then
+			log_progress_msg "(not running)"
+			log_end_msg 0
+			exit 0
+		fi
+
+		IS_STOPPED=0
+		MAX_WAIT=10
+		${JSVC} ${JSVC_OPTS} -stop ${MAINCLASS} stop
+		for i in `seq 1 ${MAX_WAIT}` ; do
+			sleep 1
+			if [  -z "$(pgrep -f ${BASEDIR}/lib/ace.jar)"  ]; then
+				IS_STOPPED=1
+				break
+			fi
+			${JSVC} ${JSVC_OPTS} -stop ${MAINCLASS} stop
+		done
+		if [ ${IS_STOPPED} -ge 1 ] ; then
+			log_end_msg 0
+			exit 0
+		fi
+
+		# if jsvc can't stop it
+		[ -z "$(pgrep -f ${BASEDIR}/lib/ace.jar)" ] || manual_stop_unifi ${RUNDIR} ${UNIFI_USER} ${UNIFI_GROUP} ${FILE_MODE}
+		for i in `seq 1 ${MAX_WAIT}` ; do
+			sleep 1
+			if [ -z "$(pgrep -f ${BASEDIR}/lib/ace.jar)" ]; then
+				IS_STOPPED=1
+				break
+			fi
+		done
+		if [ ${IS_STOPPED} -ge 1 ] ; then
+			log_end_msg 0
+			exit 0
+		fi
+
+		# force stop
+		pkill -f ${BASEDIR}/lib/ace.jar || true
+		sleep 2
+		if [ -f ${MONGOLOCK} ]; then
+			mongo localhost:${MONGOPORT} --eval "db.getSiblingDB('admin').shutdownServer()" >/dev/null 2>&1 || true
+		fi
+		log_end_msg 0
+	;;
+	status)
+		status_of_proc -p ${PIDFILE} unifi unifi && exit 0 || exit $?
+	;;
+	restart|reload|force-reload)
+		if ! is_not_running ; then
+			if which invoke-rc.d >/dev/null 2>&1; then
+				invoke-rc.d ${NAME} stop
+			else
+				/etc/init.d/${NAME} stop
+			fi
+		fi
+		if which invoke-rc.d >/dev/null 2>&1; then
+			invoke-rc.d ${NAME} start
+		else
+			/etc/init.d/${NAME} start
+		fi
+	;;
+	*)
+		log_success_msg "Usage: $0 {start|stop|restart|reload|force-reload}"
+		exit 1
+	;;
+esac
+
+exit 0
