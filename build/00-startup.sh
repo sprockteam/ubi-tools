@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2001,SC2034,SC2119,SC2120,SC2143,SC2154,SC2155
+# shellcheck disable=SC1090,SC2001,SC2034,SC2119,SC2120,SC2143,SC2154,SC2155,SC2207
 
 ### Info and Contributors
 ##############################################################################
@@ -14,8 +14,8 @@ __script_version="v0.6.2-rc.1"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Frank Gabriel (Frankedinven)
-Adrian Miller (adrianmmiller)
-Sam Sawyer (ssawyer)"
+Adrian Miller (adrianmmiller)"
+__script_mentions="florisvdk, Mattgphoto, samsawyer, SatisfyIT"
 
 ### Copyrights, Mentions and Credits
 ##############################################################################
@@ -54,6 +54,8 @@ Sam Sawyer (ssawyer)"
 # https://stackoverflow.com/a/16310021 - Use awk to check if a number greater than exists
 # https://stackoverflow.com/a/27355109 - Comment lines using sed
 # https://stackoverflow.com/a/13982225 - Do "non-greedy" matching in sed
+# https://stackoverflow.com/a/13014199 - Replace or add text in sed
+# https://stackoverflow.com/a/22221307 - Extract text between lines using sed
 ###
 
 
@@ -83,6 +85,7 @@ if ! command -v apt-get &>/dev/null; then
   echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
   exit 1
 fi
+
 # Display basic usage information and exit
 function __eubnt_show_help() {
   echo -e "
@@ -141,28 +144,34 @@ fi
 # Script variables
 __script_check_for_updates=
 __script_setup_executable=
+__script_test_mode=
+__script_error=
 __script_is_piped="$(tty --silent && echo -n || echo -n true)"
 __script_time="$(date +%s)"
 __script_git_url="https://github.com/sprockteam/easy-ubnt.git"
 __script_git_branch="master"
 __script_git_raw_content="https://github.com/sprockteam/easy-ubnt/raw/${__script_git_branch}"
-__script_dir="$(mkdir --parents "/usr/lib/${__script_name}" && echo -n "/usr/lib/${__script_name}")"
+__script_dir="$(mkdir --parents "/usr/lib/${__script_name}" && echo -n "/usr/lib/${__script_name}" || exit 1)"
 __script_file="${__script_name}.sh"
 __script_path="${__script_dir}/${__script_file}"
 __script_sbin_command="/sbin/${__script_name}"
 __script_sbin_command_short="/sbin/${__script_name_short}"
-__script_log_dir="$(mkdir --parents "/var/log/${__script_name}" && echo -n "/var/log/${__script_name}" || echo -n)"
-__script_log="$(touch "${__script_log_dir}/${__script_time}.log" && echo -n "${__script_log_dir}/${__script_time}.log" || echo -n)"
-__script_data_dir="$(mkdir --parents "/var/lib/${__script_name}" && echo -n "/var/lib/${__script_name}" || echo -n)"
-__script_temp_dir=$(mktemp --directory)
+__script_log_dir="$(mkdir --parents "/var/log/${__script_name}" && echo -n "/var/log/${__script_name}" || exit 1)"
+__script_log="$(touch "${__script_log_dir}/${__script_time}.log" && echo -n "${__script_log_dir}/${__script_time}.log" || exit 1)"
+__script_data_dir="$(mkdir --parents "/var/lib/${__script_name}" && echo -n "/var/lib/${__script_name}" || exit 1)"
+__script_temp_dir="$(mktemp --directory)"
+__script_real_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+__script_tests="${__script_real_path:-}/tests.sh"
+ln --force --symbolic "${__script_log}" "${__script_log_dir}/latest.log"
 
 # System variables
-__os_all_info="$(uname --all)"
+__is_cloud_key="$(uname --release | grep --quiet "\-ubnt\-" && echo -n true || echo -n)"
 __os_kernel_version="$(uname --release | sed 's/[-][a-z].*//g')"
 __os_version="$(lsb_release --release --short)"
 __os_version_name="$(lsb_release --codename --short)"
 __os_version_major="$(echo -n "${__os_version:-}" | cut --fields 1 --delimiter '.')"
 __os_name="$(lsb_release --id --short | sed 's/.*/\l&/g')"
+__os_description="$(lsb_release --description --short)"
 __disk_total_space_mb="$(df . | awk '/\//{printf "%.0f", $2/1024}')"
 __disk_total_space_gb="$(df . | awk '/\//{printf "%.0f", $2/1024/1024}')"
 __disk_free_space_mb="$(df . | awk '/\//{printf "%.0f", $4/1024}')"
@@ -180,6 +189,8 @@ __hostname_local="$(hostname --short)"
 __hostname_fqdn="$(hostname --fqdn)"
 
 # Package decision variables
+# Default to xenial ¯\_(ツ)_/¯
+__ubuntu_version_name_to_use_for_repos="xenial"
 if [[ "${__os_name:-}" = "ubuntu" && -n "${__os_version:-}" ]]; then
   __is_ubuntu=true
   if [[ "${__os_version//.}" -ge 1804 ]]; then
@@ -190,9 +201,6 @@ if [[ "${__os_name:-}" = "ubuntu" && -n "${__os_version:-}" ]]; then
     __ubuntu_version_name_to_use_for_repos="trusty"
   elif [[ "${__os_version//.}" -ge 1204 && "${__os_version//.}" -lt 1404 ]]; then
     __ubuntu_version_name_to_use_for_repos="precise"
-  else
-    # Try xenial ¯\_(ツ)_/¯
-    __ubuntu_version_name_to_use_for_repos="xenial"
   fi
 elif [[ "${__os_name:-}" = "linuxmint" && -n "${__os_version_major:-}" ]]; then
   __is_mint=true
@@ -204,9 +212,6 @@ elif [[ "${__os_name:-}" = "linuxmint" && -n "${__os_version_major:-}" ]]; then
     __ubuntu_version_name_to_use_for_repos="trusty"
   elif [[ "${__os_version_major}" -ge 13 && "${__os_version_major}" -lt 17 ]]; then
     __ubuntu_version_name_to_use_for_repos="precise"
-  else
-    # Try xenial ¯\_(ツ)_/¯
-    __ubuntu_version_name_to_use_for_repos="xenial"
   fi
 else
   __is_debian=true
@@ -219,9 +224,6 @@ else
       __ubuntu_version_name_to_use_for_repos="trusty"
     elif [[ "${__os_version_major}" -eq 7 ]]; then
       __ubuntu_version_name_to_use_for_repos="precise"
-    else
-      # Try xenial ¯\_(ツ)_/¯
-      __ubuntu_version_name_to_use_for_repos="xenial"
     fi
   fi
 fi
@@ -241,7 +243,9 @@ declare -A __ubnt_products=(
 
 # Miscellaneous variables
 __apt_sources_dir="/etc/apt/sources.list.d"
-__sshd_config="/etc/ssh/sshd_config"
+__sshd_dir="/etc/ssh"
+__sshd_config="${__sshd_dir}/sshd_config"
+__sshd_port="$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
 __regex_port_number='^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'
@@ -254,7 +258,8 @@ __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
 __version_mongodb3_4="3.4.99"
 __install_mongodb_package="mongodb"
-__recommended_nameserver="9.9.9.9"
+__recommended_nameserver="8.8.8.8"
+__ip_lookup_url="sprocket.link/ip"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
 __github_api_releases_stable="${__github_api_releases_all}/latest"
 
