@@ -5,7 +5,7 @@
 # $1: The message to log
 function __eubnt_add_to_log() {
   if [[ -n "${1:-}" && -f "${__script_log:-}" ]]; then
-    echo "${1}" | sed -r 's/\\e\[[^m]*m//g; s/\\n/ /g; s/\\r/ /g' >>"${__script_log}"
+    echo "${1}" | sed -r 's/\\e\[[^m]*m//g; s/\\n/ /g; s/\\r/ /g' &>>"${__script_log}"
   fi
 }
 
@@ -39,7 +39,7 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:i:p:afhquvx" options; do
+while getopts ":c:d:f:i:p:ahqtvx" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -56,6 +56,11 @@ while getopts ":c:d:i:p:afhquvx" options; do
         __eubnt_add_to_log "Command line option: specified domain name ${__hostname_fqdn}"
       else
         __eubnt_show_help
+      fi;;
+    f)
+      if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "off" ]]; then
+        __ufw_disable=true
+        __eubnt_add_to_log "Command line option: disable firewall"
       fi;;
     h|\?)
       __eubnt_show_help;;
@@ -88,9 +93,9 @@ while getopts ":c:d:i:p:afhquvx" options; do
     q)
       __quick_mode=true
       __eubnt_add_to_log "Command line option: enabled quick mode";;
-    u)
-      __ufw_skip=true
-      __eubnt_add_to_log "Command line option: skip UFW setup";;
+    t)
+      __script_test_mode=true
+      __eubnt_add_to_log "Command line option: running in test mode";;
     v)
       __verbose_output=true
       __eubnt_add_to_log "Command line option: enabled verbose mode";;
@@ -108,7 +113,7 @@ if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) &
 fi
 if [[ -z "${__ubnt_selected_product:-}" ]]; then
   __ubnt_selected_product="unifi-controller"
-  __eubnt_add_to_log "Defaulting to selected UBNT product: ${__ubnt_selected_product}"
+  __eubnt_add_to_log "Default option: selected UBNT product ${__ubnt_selected_product}"
 fi
 
 ### Error/cleanup handling
@@ -121,17 +126,45 @@ fi
 # Reboot system if needed
 # Unset global script variables
 function __eubnt_cleanup_before_exit() {
-  set +o xtrace
-  echo -e "${__colors_default:-}"
-  if [[ -z "${__ubnt_product_command:-}" ]]; then
-    echo -e "\\nCleaning up script, please wait...\\n"
+  if [[ -z "${__script_test_mode:-}" && -z "${__script_error:-}" ]]; then
+    set +o xtrace
   fi
+  if [[ -z "${__ubnt_product_command:-}" ]]; then
+    local clearscreen=""
+    if [[ -n "${__script_error:-}" || -n "${__script_test_mode:-}" ]]; then
+      clearscreen="noclear"
+    fi
+    __eubnt_show_header "Cleaning up script, please wait...\\n" "${clearscreen:-}"
+  fi
+  echo -e "${__colors_default:-}"
   if [[ -n "${__run_autoremove:-}" ]]; then
-    __eubnt_run_command "apt-get autoremove --yes"
-    __eubnt_run_command "apt-get autoclean --yes"
+    __eubnt_run_command "apt-get autoremove --yes" || true
+    __eubnt_run_command "apt-get autoclean --yes" || true
   fi
   if [[ -n "${__restart_ssh_server:-}" ]]; then
-    __eubnt_run_command "service ssh restart"
+    if __eubnt_run_command "service ssh restart"; then
+      __eubnt_show_warning "The SSH service has been reloaded with a new configuration!\\n"
+      if __eubnt_question_prompt "Do you want to verify the SSH config?" "return" "n"; then
+        __sshd_port="$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')"
+        __eubnt_show_notice "Try to connect a new SSH session on port ${__sshd_port:-22}...\\n"
+        if ! __eubnt_question_prompt "Were you able to connect successfully?"; then
+          __eubnt_show_notice "Undoing SSH config changes...\\n"
+          cp "${__sshd_config}.bak-${__script_time}" "${__sshd_config}"
+          __sshd_port="$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')"
+          if [[ -f "/etc/ufw/applications.d/openssh-server" ]]; then
+            sed -i "s|^ports=.*|ports=${__sshd_port}/tcp|" "/etc/ufw/applications.d/openssh-server"
+          fi
+          __eubnt_run_command "service ssh restart" "quiet" || true
+        fi
+      fi
+    fi
+    echo
+  fi
+  if [[ -d "${__sshd_dir:-}" ]]; then
+    local ssh_backups_to_delete="$(find "${__sshd_config}.bak"* -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>2')"
+    if [[ -n "${ssh_backups_to_delete:-}" ]]; then
+      echo "${ssh_backups_to_delete}" | xargs --max-lines=1 rm
+    fi
   fi
   if [[ -d "${__script_log_dir:-}" ]]; then
     local log_files_to_delete="$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>10')"
@@ -145,11 +178,18 @@ function __eubnt_cleanup_before_exit() {
   if [[ -n "${__reboot_system:-}" ]]; then
     shutdown -r now
   fi
+  __eubnt_add_to_log "Dumping variables to log..."
   for var_name in ${!__*}; do
-    unset -v "${var_name}"
+    if [[ -n "${!var_name:-}" && "${var_name}" != "__script_contributors" ]]; then
+      __eubnt_add_to_log "${var_name}=${!var_name}"
+    fi
+    if [[ "${var_name}" != "__script_log" ]]; then
+      unset -v "${var_name}"
+    fi
   done
-  unset IFS
-  echo
+  unset -v IFS
+  unset -v __script_log
+  echo -e "Done!\\n"
 }
 trap '__eubnt_cleanup_before_exit' EXIT
 
