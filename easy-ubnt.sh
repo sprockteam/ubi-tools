@@ -191,6 +191,7 @@ __nameservers="$(awk '/nameserver/{print $2}' /etc/resolv.conf | xargs)"
 __is_user_sudo="$([[ -n "${SUDO_USER:-}" ]] && echo -n true || echo -n)"
 __hostname_local="$(hostname --short)"
 __hostname_fqdn="$(hostname --fqdn)"
+export DEBIAN_FRONTEND="noninteractive"
 
 # Package decision variables
 # Default to xenial ¯\_(ツ)_/¯
@@ -261,7 +262,7 @@ __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
 __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
 __version_mongodb3_4="3.4.99"
-__install_mongodb_package="mongodb"
+__install_mongodb_package="mongodb-server"
 __recommended_nameserver="8.8.8.8"
 __ip_lookup_url="sprocket.link/ip"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
@@ -420,6 +421,8 @@ function __eubnt_cleanup_before_exit() {
     __eubnt_run_command "apt-get autoremove --yes" || true
     __eubnt_run_command "apt-get autoclean --yes" || true
   fi
+  __eubnt_run_command "apt-mark unhold unifi" "quiet" || true
+  export DEBIAN_FRONTEND="dialog"
   if [[ -n "${__restart_ssh_server:-}" ]]; then
     if __eubnt_run_command "service ssh restart"; then
       __eubnt_show_warning "The SSH service has been reloaded with a new configuration!\\n"
@@ -485,7 +488,7 @@ function __eubnt_script_colors() {
 # $1: An optional error message to display
 function __eubnt_show_error() {
   if [[ -n "${__script_debug:-}" ]]; then
-    echo -e "Pausing before error message for 10 seconds..."
+    echo -e "Error encountered, pausing 10 seconds..."
     sleep 10
   else
     clear || true
@@ -504,6 +507,9 @@ function __eubnt_show_error() {
     __eubnt_echo_and_log "Error message: ${1}"
   fi
   echo -e "${__colors_default}"
+  echo
+  echo -e "Pausing for 10 seconds..."
+  sleep 10
   __script_error=true
   exit 1
 }
@@ -918,7 +924,7 @@ function __eubnt_run_command() {
   fi
   declare -a full_command=()
   IFS=' ' read -r -a full_command <<< "${1}"
-  if ! __eubnt_is_command "${full_command[0]}" && [[ "${3:-}" != "force" ]]; then
+  if ! __eubnt_is_command "${full_command[0]}" && [[ "${4:-}" != "force" ]]; then
     local found_package=""
     local unknown_command="${full_command[0]}"
     if __eubnt_install_package "apt-file"; then
@@ -1074,7 +1080,8 @@ function __eubnt_is_package_installed() {
     local package_name="$(echo "${1}" | sed 's/=.*//')"
     local package_status="$(dpkg --list | grep " ${package_name} " | head --lines=1 | awk '{print $1}')"
     if [[ -n "${package_status:-}" && "${#package_status}" -gt 0 ]]; then
-      if [[ "${package_status}" = "ii" ]]; then
+      if [[ "${package_status}" = "ii" \
+         || "${package_status}" = "hi" ]]; then
         return 0
       elif [[ "${package_status:0:1}" = "r" \
            || "${package_status:0:1}" = "u" \
@@ -1342,7 +1349,7 @@ function __eubnt_initialize_unifi_controller_variables() {
   __unifi_controller_data_version=""
   __unifi_controller_package_version=""
   if __eubnt_is_package_installed "unifi"; then
-    __unifi_controller_package_version=$(dpkg --list "unifi" | awk '/^ii/{print $3}' | sed 's/-.*//')
+    __unifi_controller_package_version=$(dpkg --list "unifi" | awk '/unifi/{print $3}' | sed 's/-.*//')
     __unifi_controller_service="/lib/systemd/system/unifi.service"
     if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
       __unifi_controller_is_installed=true
@@ -1379,9 +1386,11 @@ function __eubnt_initialize_unifi_controller_variables() {
                     __unifi_controller_mongodb_ace="ace"
                     __unifi_controller_mongodb_ace_stat="ace_stat"
                     __unifi_controller_has_data=true
-                    # shellcheck disable=SC2016,SC2086
-                    if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} ${__unifi_controller_mongodb_ace} --eval 'db.device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
-                      __unifi_controller_limited_to_lts=true
+                    if __eubnt_is_command "mongo"; then
+                      # shellcheck disable=SC2016,SC2086
+                      if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} ${__unifi_controller_mongodb_ace} --eval 'db.device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
+                        __unifi_controller_limited_to_lts=true
+                      fi
                     fi
                   else
                     __eubnt_add_to_log "UniFi Network Controller does not appear to have any data loaded"
@@ -1417,19 +1426,22 @@ function __eubnt_is_unifi_controller_running() {
   local counter=0
   while true; do
     __eubnt_initialize_unifi_controller_variables
-  if [[ -n "${__unifi_controller_is_installed:-}" && -n "${__unifi_controller_is_running:-}" && -n "${__unifi_controller_has_data:-}" ]]; then
-    if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_inform:-8080}" "tcp" "java" "${1:-}"; then
-      if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_admin:-8443}" "tcp" "java" "${1:-}"; then
-        return 0
-      else
-        if [[ "${1:-}" != "continuous" || "${counter:-}" -gt 600 ]]; then
-          return 1
+    if ! __eubnt_is_package_installed "unifi"; then
+      return 1
+    fi
+    if [[ -n "${__unifi_controller_is_running:-}" && -n "${__unifi_controller_has_data:-}" ]]; then
+      if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_inform:-8080}" "tcp" "java" "${1:-}"; then
+        if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_admin:-8443}" "tcp" "java" "${1:-}"; then
+          return 0
+        else
+          if [[ "${1:-}" != "continuous" || "${counter:-}" -gt 600 ]]; then
+            return 1
+          fi
         fi
-        sleep 1
-        (( counter++ ))
       fi
     fi
-  fi
+    sleep 1
+    (( counter++ ))
   done
 }
 
@@ -1719,6 +1731,7 @@ function __eubnt_setup_sources() {
   if [[ "${1:-}" = "mongodb" ]]; then
     local distro_mongodb_installable_version="$(apt-cache madison mongodb | sort --version-sort | tail --lines=1 | awk '{print $3}' | sed 's/.*://; s/[-+].*//;')"
     if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
+      __install_mongodb_package="mongodb-org-server"
       local official_mongodb_repo_url=""
       if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ) ]]; then
         local os_version_name_for_official_mongodb_repo="${__ubuntu_version_name_to_use_for_repos}"
@@ -1737,7 +1750,6 @@ function __eubnt_setup_sources() {
       if [[ -n "${official_mongodb_repo_url:-}" ]]; then
         if __eubnt_add_source "${official_mongodb_repo_url}" "mongodb-org-3.4.list" "repo\\.mongodb\\.org.*3\\.4"; then
           __eubnt_add_key "A15703C6" # MongoDB official package signing key
-          __install_mongodb_package="mongodb-org"
           do_apt_update=true
         fi
       fi
@@ -1775,7 +1787,9 @@ function __eubnt_install_updates() {
   __eubnt_show_header "Installing updates...\\n"
   local updates_available=""
   __eubnt_run_command "apt-get update" || true
-  __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"
+  if ! __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"; then
+    return 1
+  fi
   updates_available="$(echo "${updates_available}" | grep --count "^Inst " || updates_available=0)"
   if [[ "${updates_available:-}" -gt 0 ]]; then
     echo
@@ -1830,7 +1844,7 @@ function __eubnt_install_mongodb()
     __eubnt_show_header "Installing MongoDB...\\n"
   fi
   __eubnt_setup_sources "mongodb"
-  if ! __eubnt_install_package "${__install_mongodb_package:-mongodb}"; then
+  if ! __eubnt_install_package "${__install_mongodb_package:-mongodb-server}"; then
     __eubnt_show_warning "Unable to install MongoDB at $(caller)"
     return 1
   fi
@@ -2349,6 +2363,9 @@ function __eubnt_common_fixes {
   if [[ "${1:-}" != "noheader" ]]; then
     __eubnt_show_header "Running common fixes...\\n"
   fi
+  __eubnt_run_command "killall apt apt-get" "quiet" || true
+  __eubnt_run_command "rm --force /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock*" || true
+  __eubnt_run_command "dpkg --configure -a" || true
   __eubnt_run_command "apt-get install --fix-broken --yes" || true
   __eubnt_run_command "apt-get autoremove --yes" || true
   __eubnt_run_command "apt-get clean --yes" || true
@@ -2441,6 +2458,10 @@ if [[ -z "${__accept_license:-}" ]]; then
   echo
 fi
 __eubnt_show_header "Checking system...\\n"
+__eubnt_run_command "apt-mark hold unifi" "quiet" || true
+if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
+  __eubnt_run_command "apt-get update" || true
+fi
 __eubnt_install_dependencies
 ubnt_dl_ip=""
 __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
@@ -2489,10 +2510,12 @@ if [[ -z "${__is_cloud_key:-}" ]]; then
   if ! __eubnt_setup_sources; then
     __eubnt_show_error "Unable to setup package sources"
   fi
-  __eubnt_install_updates
+  if ! __eubnt_install_updates; then
+    __eubnt_show_error "Unable to install updates"
+  fi
   if [[ -f /var/run/reboot-required ]]; then
-    echo
     __eubnt_show_warning "A reboot is recommended. Run this script again after reboot."
+    echo
     # TODO: Restart the script automatically after reboot
     if [[ -n "${__quick_mode:-}" ]]; then
       __eubnt_show_warning "The system will automatically reboot in 10 seconds."
@@ -2506,7 +2529,21 @@ if [[ -z "${__is_cloud_key:-}" ]]; then
   fi
 fi
 if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
-  __eubnt_install_unifi_controller || true
+  if __eubnt_install_unifi_controller; then
+    if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+      available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
+      if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
+        if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
+          __eubnt_add_key "C0A52C50" || true
+          __eubnt_run_command "apt-get update" "quiet" || true
+        fi
+      else
+        if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
+          __eubnt_run_command "apt-get update" "quiet" || true
+        fi
+      fi
+    fi
+  fi
 fi
 __eubnt_setup_certbot || true
 if [[ -z "${__is_cloud_key:-}" ]]; then
