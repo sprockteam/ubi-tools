@@ -952,6 +952,9 @@ function __eubnt_run_command() {
   fi
   local background_pid=""
   local command_status=0
+  local took_too_long=
+  set +o errexit
+  set +o errtrace
   if [[ ( -n "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
     "${full_command[@]}" | tee -a "${__script_log}"
     command_status=$?
@@ -968,15 +971,21 @@ function __eubnt_run_command() {
       echo -e -n "\\rRunning ${command_display} [${__spinner:i++%${#__spinner}:1}]"
       sleep 0.5
       if [[ $i -gt 360 ]]; then
-        __eubnt_show_warning "Took too long running ${1} at $(caller)"
-        return 1
+        took_too_long=true
+        break
       fi
     done
     # shellcheck disable=SC2086
     wait $background_pid
     command_status=$?
   fi
+  set -o errexit
+  set -o errtrace
   __eubnt_add_to_log "End_${command_id}: ${1}"
+  if [[ -n "${took_too_long:-}" ]]; then
+    __eubnt_show_warning "Took too long running ${1} at $(caller)"
+    command_status=1
+  fi
   if [[ -n "${3:-}" ]]; then
     local command_output="$(sed -n "/Start_${command_id}:/,/End_${command_id}:/{//b;p}" "${__script_log}")"
     # shellcheck disable=SC2086
