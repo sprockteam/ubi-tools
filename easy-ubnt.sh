@@ -1816,29 +1816,25 @@ function __eubnt_install_java() {
   fi
   __eubnt_setup_sources
   local target_release=""
+  local java_alternative=""
   if [[ "${__os_version_name}" = "jessie" ]]; then
     target_release="${__os_version_name}-backports"
   fi
   if __eubnt_install_package "ca-certificates-java" "${target_release:-}"; then
-    if ! __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"; then
-      __eubnt_show_warning "Unable to install OpenJDK Java 8 at $(caller)"
-      return 1
+    if __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"; then
+      java_alternative="$(update-java-alternatives --list | awk '/^java-1.8.*-openjdk/{print $1}')"
+      if __eubnt_run_command "update-java-alternatives --set ${java_alternative:-}" "quiet"; then
+        if __eubnt_install_package "jsvc"; then
+          if __eubnt_install_package "libcommons-daemon-java"; then
+            __eubnt_install_package "haveged" || true
+            return 0
+          fi
+        fi
+      fi
     fi
   fi
-  if [[ "${1:-}" != "noheader" ]]; then
-    __eubnt_show_header "Checking extra Java-related packages...\\n"
-  fi
-  if __eubnt_run_command "update-alternatives --list java" "quiet"; then
-    __eubnt_install_package "jsvc" || true
-    __eubnt_install_package "libcommons-daemon-java" || true
-    __eubnt_install_package "haveged" || true
-  fi
-}
-
-# Set default Java alternative
-# $1: The Java package to set as the default
-function __eubnt_set_java_alternative() {
-  true
+  __eubnt_show_warning "Unable to install OpenJDK Java 8 at $(caller)"
+  return 1
 }
 
 # Install MongoDB
