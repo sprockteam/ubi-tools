@@ -1742,15 +1742,6 @@ function __eubnt_setup_sources() {
         fi
       fi
     fi
-  elif [[ "${1:-}" = "java" ]]; then
-    local openjdk8_installable_version="$(apt-cache madison openjdk-8-jre-headless | awk '{print $3}' | sed 's/.*://; s/[-+].*//;' | sort --version-sort | tail --lines=1)"
-    if [[ ! "${openjdk8_installable_version}" =~ ${__regex_version_java8} ]]; then
-      if __eubnt_add_source "http://ppa.launchpad.net/webupd8team/java/ubuntu ${__ubuntu_version_name_to_use_for_repos} main" "webupd8team-java.list" "ppa\\.launchpad\\.net.*${__ubuntu_version_name_to_use_for_repos}.*main"; then
-        __eubnt_add_key "EEA14886" # WebUpd8 package signing key
-        do_apt_update=true
-        __install_webupd8_java=true
-      fi
-    fi
   elif [[ "${1:-}" = "nodejs" ]]; then
     local nodejs_sources_script=$(mktemp)
     if __eubnt_run_command "wget --quiet https://deb.nodesource.com/setup_8.x --output-document ${nodejs_sources_script}"; then
