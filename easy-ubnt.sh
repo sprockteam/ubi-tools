@@ -262,7 +262,7 @@ __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
 __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
 __version_mongodb3_4="3.4.99"
-__install_mongodb_package="mongodb-server"
+__install_mongodb_package="mongodb"
 __recommended_nameserver="8.8.8.8"
 __ip_lookup_url="sprocket.link/ip"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
@@ -1731,7 +1731,7 @@ function __eubnt_setup_sources() {
   if [[ "${1:-}" = "mongodb" ]]; then
     local distro_mongodb_installable_version="$(apt-cache madison mongodb | sort --version-sort | tail --lines=1 | awk '{print $3}' | sed 's/.*://; s/[-+].*//;')"
     if __eubnt_version_compare "${distro_mongodb_installable_version}" "gt" "${__version_mongodb3_4}"; then
-      __install_mongodb_package="mongodb-org-server"
+      __install_mongodb_package="mongodb-org"
       local official_mongodb_repo_url=""
       if [[ -n "${__is_64:-}" && ( -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ) ]]; then
         local os_version_name_for_official_mongodb_repo="${__ubuntu_version_name_to_use_for_repos}"
@@ -1786,7 +1786,6 @@ function __eubnt_setup_sources() {
 function __eubnt_install_updates() {
   __eubnt_show_header "Installing updates...\\n"
   local updates_available=""
-  __eubnt_run_command "apt-get update" || true
   if ! __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"; then
     return 1
   fi
@@ -1843,11 +1842,15 @@ function __eubnt_install_mongodb()
   if [[ "${1:-}" != "noheader" ]]; then
     __eubnt_show_header "Installing MongoDB...\\n"
   fi
-  __eubnt_setup_sources "mongodb"
-  if ! __eubnt_install_package "${__install_mongodb_package:-mongodb-server}"; then
-    __eubnt_show_warning "Unable to install MongoDB at $(caller)"
-    return 1
+  if __eubnt_setup_sources "mongodb"; then
+    if __eubnt_install_package "${__install_mongodb_package:-}"; then
+      if __eubnt_install_package "${__install_mongodb_package:-}-server"; then
+        return 0
+      fi
+    fi
   fi
+  __eubnt_show_warning "Unable to install MongoDB at $(caller)"
+  return 1
 }
 
 # Install script dependencies
