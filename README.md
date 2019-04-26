@@ -16,8 +16,7 @@ sudo bash easy-ubnt.sh
 ### Quick mode
 You can run the script to quickly deploy a server this way:
 ```console
-wget https://github.com/sprockteam/easy-ubnt/raw/master/easy-ubnt.sh -O easy-ubnt.sh
-sudo bash easy-ubnt.sh -aqd unifi.fqdn.com
+wget sprocket.link/eubnt -qO easy-ubnt.sh && sudo bash easy-ubnt.sh -aqd unifi.fqdn.com
 ```
 
 ### More script options
@@ -31,12 +30,17 @@ You can set the domain name to use when setting up Let's Encrypt:
 sudo bash easy-ubnt.sh -d domain.com
 ```
 
+You can disable the UFW firewall:
+```console
+sudo bash easy-ubnt.sh -f off
+```
+
 You can see an explanation of the script options:
 ```console
 sudo bash easy-ubnt.sh -h
 ```
 
-You can run the script in "quick" mode to bypass most of the question prompts:
+You can run the script in "quick" mode to accept the default answers to questions:
 ```console
 sudo bash easy-ubnt.sh -q
 ```
@@ -48,13 +52,13 @@ You can get verbose output of commands during script run:
 sudo bash easy-ubnt.sh -v
 ```
 
-You can trace each command of the script to see what it's doing:
+You can trace each command on the screen to see what the script is doing:
 ```console
 sudo bash easy-ubnt.sh -x
 ```
 
 ### Script Logging
-The last 5 logs are saved in `/var/log/easy-ubnt` and the latest script log is symlinked as `latest.log`:
+The last 10 logs are saved in `/var/log/easy-ubnt` and the latest script log is symlinked as `latest.log`:
 ```console
-cat /var/log/easy-ubnt/latest.log | more
+more /var/log/easy-ubnt/latest.log
 ```

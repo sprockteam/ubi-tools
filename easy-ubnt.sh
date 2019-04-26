@@ -13,8 +13,8 @@ __script_name_short="eubnt"
 __script_version="v0.6.3-dev"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
-Frank Gabriel (Frankedinven)
-Adrian Miller (adrianmmiller)"
+Adrian Miller (adrianmmiller)
+Frank Gabriel (Frankedinven)"
 __script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT"
 
 ### Copyrights, Mentions and Credits
@@ -101,14 +101,18 @@ function __eubnt_show_help() {
               Currently supported commands:
               'archive_all_alerts'
   -d [arg]    Specify what domain name (FQDN) to use in the script
+  -f [arg]    Enable or disable UFW firewall
+              Currently supported options:
+              'on' (default)
+              'off'
   -h          Show this help screen
   -i [arg]    Specify a version to install, used with -p
               Examples: '5.9.29', 'stable, '5.7'
   -p [arg]    Specify which UBNT product to administer
               Currently supported products:
-              'unifi-controller'
-  -u          Skip UFW setup
+              'unifi-controller' (default)
   -q          Run the script in quick mode, accepting all default answers
+  -t          Bypass script execution and run tests
   -v          Enable verbose screen output
   -x          Enable script execution tracing\\n"
   exit 1
