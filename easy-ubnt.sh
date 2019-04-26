@@ -416,7 +416,6 @@ function __eubnt_cleanup_before_exit() {
     fi
     __eubnt_show_header "Cleaning up script, please wait...\\n" "${clearscreen:-}"
   fi
-  echo -e "${__colors_default:-}"
   if [[ -n "${__run_autoremove:-}" ]]; then
     __eubnt_run_command "apt-get autoremove --yes" || true
     __eubnt_run_command "apt-get autoclean --yes" || true
@@ -440,6 +439,7 @@ function __eubnt_cleanup_before_exit() {
     fi
     echo
   fi
+  echo -e "${__colors_default:-}"
   if [[ -d "${__sshd_dir:-}" ]]; then
     local ssh_backups_to_delete="$(find "${__sshd_config}.bak"* -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>2')"
     if [[ -n "${ssh_backups_to_delete:-}" ]]; then
@@ -1013,7 +1013,7 @@ function __eubnt_install_package() {
       fi
     fi
     if ! __eubnt_run_command "apt-get install --simulate ${1}" "quiet"; then
-      __eubnt_setup_sources
+      __eubnt_setup_sources || true
       __eubnt_common_fixes "noheader"
     else
       local skip_simulate=true
@@ -1098,9 +1098,6 @@ function __eubnt_add_source() {
         __eubnt_echo_and_log "deb ${1}" "${__apt_sources_dir}/${2}"
         return 0
       fi
-    else
-      __eubnt_add_to_log "Skipping add source for ${1}"
-      return 0
     fi
   fi
   return 1
@@ -1137,7 +1134,7 @@ function __eubnt_add_key() {
       return 0
     fi
   else
-    __eubnt_show_warning "No key fingerprint was given at $(caller)"
+    __eubnt_add_to_log "No key fingerprint was given at $(caller)"
     return 1
   fi
 }
@@ -1684,23 +1681,35 @@ function __eubnt_install_unifi_controller_version()
 # Java: Use the core distribution sources to get Java for all others
 # MongoDB: Official repository only distributes 64-bit packages, not compatible with Wheezy
 # MongoDB: UniFi will install it from distribution sources if needed
-# $1: Optionally setup sources for "mongodb", "java", "nodejs", "certbot"
+# $1: Optionally setup sources for "mongodb", "nodejs", "certbot"
 function __eubnt_setup_sources() {
   local do_apt_update=
-  __eubnt_install_package "software-properties-common"
+  __eubnt_install_package "software-properties-common" || return 1
   if [[ -n "${__is_ubuntu:-}" || -n "${__is_mint:-}" ]]; then
     local kernel_mirror_repo="ubuntu"
     if [[ -n "${__is_mint:-}" ]]; then
       kernel_mirror_repo="linuxmint-packages"
     fi
-    __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main" && do_apt_update=true
-    __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main" && do_apt_update=true
-    __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__ubuntu_version_name_to_use_for_repos}-security main universe" "${__ubuntu_version_name_to_use_for_repos}-security.list" "security\\.ubuntu\\.com.*${__ubuntu_version_name_to_use_for_repos}-security main" && do_apt_update=true
-    __eubnt_add_source "http://mirrors.kernel.org/${kernel_mirror_repo} ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main" && do_apt_update=true
+    if __eubnt_add_source "http://archive.ubuntu.com/ubuntu ${__os_version_name} main universe" "${__os_version_name}-archive.list" "archive\\.ubuntu\\.com.*${__os_version_name}.*main"; then
+      do_apt_update=true
+    fi
+    if __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__os_version_name}-security main universe" "${__os_version_name}-security.list" "security\\.ubuntu\\.com.*${__os_version_name}-security main"; then
+      do_apt_update=true
+    fi
+    if __eubnt_add_source "http://security.ubuntu.com/ubuntu ${__ubuntu_version_name_to_use_for_repos}-security main universe" "${__ubuntu_version_name_to_use_for_repos}-security.list" "security\\.ubuntu\\.com.*${__ubuntu_version_name_to_use_for_repos}-security main"; then
+      do_apt_update=true
+    fi
+    if __eubnt_add_source "http://mirrors.kernel.org/${kernel_mirror_repo} ${__os_version_name} main universe" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main"; then
+      do_apt_update=true
+    fi
   elif [[ -n "${__is_debian:-}" ]]; then
-    __eubnt_install_package "dirmngr" || true
-    __eubnt_add_source "http://ftp.debian.org/debian ${__os_version_name}-backports main" "${__os_version_name}-backports.list" "ftp\\.debian\\.org.*${__os_version_name}-backports.*main" && do_apt_update=true
-    __eubnt_add_source "http://mirrors.kernel.org/debian ${__os_version_name} main" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main" && do_apt_update=true
+    __eubnt_install_package "dirmngr" || return 1
+    if __eubnt_add_source "http://ftp.debian.org/debian ${__os_version_name}-backports main" "${__os_version_name}-backports.list" "ftp\\.debian\\.org.*${__os_version_name}-backports.*main"; then
+      do_apt_update=true
+    fi
+    if __eubnt_add_source "http://mirrors.kernel.org/debian ${__os_version_name} main" "${__os_version_name}-mirror.list" "mirrors\\.kernel\\.org.*${__os_version_name}.*main"; then
+      do_apt_update=true
+    fi
   fi
   if [[ -n "${do_apt_update:-}" ]]; then
     if __eubnt_run_command "apt-get update"; then
@@ -1796,7 +1805,7 @@ function __eubnt_install_java() {
   if [[ "${1:-}" != "noheader" ]]; then
     __eubnt_show_header "Installing Java...\\n"
   fi
-  __eubnt_setup_sources "java"
+  __eubnt_setup_sources
   local target_release=""
   if [[ "${__os_version_name}" = "jessie" ]]; then
     target_release="${__os_version_name}-backports"
@@ -2486,7 +2495,9 @@ else
 fi
 if [[ -z "${__is_cloud_key:-}" ]]; then
   __eubnt_common_fixes
-  __eubnt_setup_sources
+  if ! __eubnt_setup_sources; then
+    __eubnt_show_error "Unable to setup package sources"
+  fi
   __eubnt_install_updates
   if [[ -f /var/run/reboot-required ]]; then
     echo
