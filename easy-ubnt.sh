@@ -407,15 +407,9 @@ fi
 # Reboot system if needed
 # Unset global script variables
 function __eubnt_cleanup_before_exit() {
-  if [[ -z "${__script_test_mode:-}" && -z "${__script_error:-}" ]]; then
-    set +o xtrace
-  fi
   if [[ -z "${__ubnt_product_command:-}" ]]; then
     local clearscreen=""
-    if [[ -n "${__script_error:-}" || -n "${__script_test_mode:-}" ]]; then
-      clearscreen="noclear"
-    fi
-    __eubnt_show_header "Cleaning up script, please wait...\\n" "${clearscreen:-}"
+    __eubnt_show_header "Cleaning up script, please wait...\\n"
   fi
   if [[ -n "${__run_autoremove:-}" ]]; then
     __eubnt_run_command "apt-get autoremove --yes" || true
@@ -523,8 +517,10 @@ trap '__eubnt_show_error' ERR
 # The script header will then be displayed
 # If $1 is set then it will be displayed under the header
 function __eubnt_show_header() {
-  if [[ -z "${__script_debug:-}" || "${2:-}" != "noclear" ]]; then
-    clear || true
+  if [[ -n "${__script_debug:-}" || -n "${__script_error:-}" || -n "${__script_test_mode:-}" || "${2:-}" = "noclear" ]]; then
+    true
+  else
+    clear
   fi
   echo -e "${__colors_notice_text}### ${__script_full_title}"
   echo -e "##############################################################################${__colors_default}"
