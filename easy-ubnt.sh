@@ -1363,14 +1363,13 @@ function __eubnt_initialize_unifi_controller_variables() {
         __unifi_controller_is_running=true
         __eubnt_add_to_log "UniFi Network Controller ${__unifi_controller_package_version} is running"
         local unifi_service=""
-        __eubnt_run_command "pgrep java --list-full" "quiet" "unifi_service" || true
-        __unifi_controller_data_dir="$(echo "${unifi_service:-}" | tail --lines=1 | sed -e 's|.* -Dunifi.datadir=||; s| .*||')"
-        __unifi_controller_log_dir="$(echo "${unifi_service:-}"| tail --lines=1 | sed -e 's|.* -Dunifi.logdir=||; s| .*||')"
-        if [[ ! -d "${__unifi_controller_data_dir:-}" ]]; then
-          __unifi_controller_data_dir="/var/lib/unifi"
+        __unifi_controller_data_dir="/var/lib/unifi"
+        __unifi_controller_log_dir="/var/log/unifi"
+        if [[ ! -d "${__unifi_controller_data_dir:-}" && -n "${__is_cloud_key:-}" ]]; then
+          __unifi_controller_data_dir="/srv/unifi/data"
         fi
-        if [[ ! -d "${__unifi_controller_log_dir:-}" ]]; then
-          __unifi_controller_log_dir="/var/log/unifi"
+        if [[ ! -d "${__unifi_controller_log_dir:-}" && -n "${__is_cloud_key:-}" ]]; then
+          __unifi_controller_log_dir="/srv/unifi/logs"
         fi
         if [[ -d "${__unifi_controller_log_dir:-}" ]]; then
           if [[ -d "${__unifi_controller_data_dir:-}" ]]; then
@@ -1381,7 +1380,7 @@ function __eubnt_initialize_unifi_controller_variables() {
                 if [[ -f "${__unifi_controller_data_dir}/db/mongod.lock" ]]; then
                   local unifi_mongod=""
                   __eubnt_run_command "pgrep mongod --list-full" "quiet" "unifi_mongod" || true
-                  __unifi_controller_mongodb_port="$(echo "${unifi_mongod:-}" | tail --lines=1 | sed -e 's|.*--port ||; s| --.*||')"
+                  __unifi_controller_mongodb_port="$(echo "${unifi_mongod:-}" | grep "unifi" | tail --lines=1 | sed -e 's|.*--port ||; s| --.*||')"
                   if ! __eubnt_is_port_in_use "${__unifi_controller_mongodb_port:-}"; then
                     __unifi_controller_mongodb_port="27117"
                   fi
@@ -1506,7 +1505,7 @@ function __eubnt_install_unifi_controller()
       fi
     fi
     if [[ "${available_version_stable:-}" =~ ${__regex_version_full} ]]; then
-      if [[ -z "${__unifi_controller_package_version:-}" ]] || __eubnt_version_compare "${available_version_stable}" "gt" "${__unifi_controller_package_version:-}"; then
+      if [[ -z "${__unifi_controller_package_version:-}" ]] || ! __eubnt_version_compare "${available_version_stable}" "eq" "${__unifi_controller_package_version:-}"; then
         if [[ -z "${__unifi_controller_limited_to_lts:-}" ]]; then
           add_stable_version=true
         fi
@@ -1641,7 +1640,7 @@ function __eubnt_install_unifi_controller_version()
     __eubnt_show_warning "UniFi Network Controller ${install_this_version} is a previous version...\\n"
     if __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       echo
-      if ! DEBIAN_FRONTEND=noninteractive dpkg --purge --force-all unifi; then
+      if ! __eubnt_run_command "dpkg --purge --force-all unifi"; then
         return 1
       fi
     else
@@ -1667,17 +1666,17 @@ function __eubnt_install_unifi_controller_version()
   __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}...\\n"
   local unifi_deb_file=""
   if __eubnt_download_ubnt_deb "${install_this_url}" "unifi_deb_file"; then
-    if [[ -f "${unifi_deb_file}" ]]; then
+    if [[ -f "${unifi_deb_file:-}" ]]; then
       echo
       if __eubnt_install_package "binutils"; then
         if __eubnt_install_java "noheader"; then
           if __eubnt_install_mongodb "noheader"; then
             echo "unifi unifi/has_backup boolean true" | debconf-set-selections
             __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
-            if DEBIAN_FRONTEND=noninteractive dpkg --install --force-all "${unifi_deb_file}"; then
-              __eubnt_show_success "Installation complete! Waiting for UniFi Network Controller to finish loading..."
-              if ! __eubnt_is_unifi_controller_running "continuous"; then
-                return 1
+            if __eubnt_run_command "dpkg --install --force-all ${unifi_deb_file}"; then
+              __eubnt_show_success "Installation complete! Waiting for UniFi Network Controller to finish loading...\\n"
+              if __eubnt_is_unifi_controller_running "continuous"; then
+                return 0
               fi
             fi
           fi
@@ -1685,6 +1684,7 @@ function __eubnt_install_unifi_controller_version()
       fi
     fi
   fi
+  return 1
 }
 
 ### Setup sources and install common packages
