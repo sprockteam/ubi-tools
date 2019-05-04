@@ -1539,7 +1539,7 @@ function __eubnt_install_unifi_controller()
       versions_to_select+=("${available_version_stable}" "   Latest public stable release")
     fi
     if [[ -n "${add_lts_version:-}" ]]; then
-      versions_to_select+=("${available_version_lts}" "   LTS release for Gen1 AC and PicoM2")
+      versions_to_select+=("${available_version_lts}" "   Latest public 5.6 release (Gen1 UAP-AC)")
     fi
     versions_to_select+=("Other" "   Enter a version number" "Beta" "   Enter a beta or unstable URL")
     selected_version="$(__eubnt_show_whiptail "menu" "UniFi Network Controller" "versions_to_select")"
