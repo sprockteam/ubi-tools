@@ -388,12 +388,12 @@ while getopts ":c:d:f:i:p:ahqtvx" options; do
       break;;
   esac
 done
-if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
-  __eubnt_show_help
-fi
 if [[ -z "${__ubnt_selected_product:-}" ]]; then
   __ubnt_selected_product="unifi-controller"
   __eubnt_add_to_log "Default option: selected UBNT product ${__ubnt_selected_product}"
+fi
+if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
+  __eubnt_show_help
 fi
 
 ### Error/cleanup handling
@@ -459,13 +459,16 @@ function __eubnt_cleanup_before_exit() {
     if [[ -n "${!var_name:-}" && "${var_name}" != "__script_contributors" ]]; then
       __eubnt_add_to_log "${var_name}=${!var_name}"
     fi
-    if [[ "${var_name}" != "__script_log" ]]; then
+    if [[ "${var_name}" != "__script_log" && "${var_name}" != "__ubnt_product_command" ]]; then
       unset -v "${var_name}"
     fi
   done
+  if [[ -z "${__ubnt_product_command:-}" ]]; then
+    echo -e "Done!\\n"
+  fi
   unset -v IFS
   unset -v __script_log
-  echo -e "Done!\\n"
+  unset -v __ubnt_product_command
 }
 trap '__eubnt_cleanup_before_exit' EXIT
 
