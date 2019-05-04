@@ -1225,14 +1225,41 @@ function __eubnt_ubnt_get_product() {
         fi
       fi
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
-        update_url="${__ubnt_update_api}${product}${product_channel}${product_platform}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=10"
-        declare -a wget_command=(wget --quiet --output-document - "${update_url}")
-        if [[ "${3:-}" = "url" ]]; then
-          # shellcheck disable=SC2068
-          download_url="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+        local update_url="${__ubnt_update_api}${product}${product_channel}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
+        declare -a wget_update=(wget --quiet --output-document - "${update_url}")
+        # shellcheck disable=SC2068
+        found_version="$(${wget_update[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
+        if [[ "${ubnt_product}" = "unifi-controller" ]]; then
+          if [[ ! "${found_version:-}" =~ ${__regex_version_full} ]]; then
+            found_version="${2}"
+          fi
+          local check_download_url="https://dl.ubnt.com/unifi/${found_version}/unifi_sysvinit_all.deb"
+          local latest_download_url=""
+          if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
+            latest_download_url="${check_download_url}"
+          fi
+          IFS='.' read -r -a version_array <<< "${found_version}"
+          local check_patch=$(( version_array[2]+1 ))
+          local max_patch=$(( version_array[2]+10 ))
+          local check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+          while [[ "${check_version:-}" =~ ${__regex_version_full} && ${check_patch} -le ${max_patch} ]]; do
+            check_download_url="https://dl.ubnt.com/unifi/${check_version}/unifi_sysvinit_all.deb"
+            if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
+              latest_download_url="${check_download_url}"
+              found_version="${check_version}"
+              break
+            fi
+            (( check_patch++ ))
+            check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+          done
+          if [[ "${3:-}" = "url" && "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+            download_url="${latest_download_url}"
+          fi
         else
-          # shellcheck disable=SC2068
-          found_version="$(${wget_command[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
+          if [[ "${3:-}" = "url" ]]; then
+            # shellcheck disable=SC2068
+            download_url="$(${wget_update[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+          fi
         fi
       fi
     fi
@@ -1481,13 +1508,9 @@ function __eubnt_install_unifi_controller()
   fi
   declare -a versions_to_install=()
   declare -a versions_to_select=()
-  local get_ubnt_url=
   __eubnt_initialize_unifi_controller_variables
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
     versions_to_select+=("${__unifi_controller_package_version}" "   Reinstall this version")
-    if __eubnt_version_compare "${__unifi_controller_package_version}" "gt" "${available_version_stable}"; then
-      get_ubnt_url=true
-    fi
   fi
   if [[ -n "${__ubnt_product_version:-}" && -n "${available_version_selected:-}" ]]; then
     selected_version="${available_version_selected}"
@@ -1559,7 +1582,7 @@ function __eubnt_install_unifi_controller()
         fi
       done
     fi
-    if [[ "${selected_version}" = "Beta" || -n "${get_ubnt_url:-}" ]]; then
+    if [[ "${selected_version}" = "Beta" ]] || __eubnt_version_compare "${selected_version}" "gt" "${available_version_stable}"; then
       local what_ubnt_url=""
       while [[ ! "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; do
         __eubnt_show_header "Installing UniFi Network Controller...\\n"
@@ -1788,19 +1811,21 @@ function __eubnt_setup_sources() {
 # Install package upgrades through apt-get dist-upgrade
 # Ask if packages critical to UniFi Network Controller function should be updated or not
 function __eubnt_install_updates() {
-  __eubnt_show_header "Installing updates...\\n"
+  __eubnt_show_header "Installing updates..."
   local updates_available=""
-  if ! __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"; then
-    return 1
-  fi
-  updates_available="$(echo "${updates_available}" | grep --count "^Inst " || updates_available=0)"
-  if [[ "${updates_available:-}" -gt 0 ]]; then
-    echo
-    if __eubnt_question_prompt "Install available package upgrades?"; then
+  local num_updates_available=0
+  if __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"; then
+    num_updates_available="$(echo "${updates_available}" | grep --count "^Inst ")"
+    if [[ "${num_updates_available:-}" -gt 0 ]]; then
+      __eubnt_show_notice "Updates (${num_updates_available:-}) available:"
+      __eubnt_show_text "$(echo "${updates_available}" | grep "^Inst" | awk '{print $2}')"
       echo
-      __eubnt_install_package "unattended-upgrades" || true
-      if __eubnt_run_command "apt-get dist-upgrade --yes"; then
-        __run_autoremove=true
+      if __eubnt_question_prompt "Install available package upgrades?"; then
+        echo
+        __eubnt_install_package "unattended-upgrades" || true
+        if __eubnt_run_command "apt-get dist-upgrade --yes"; then
+          __run_autoremove=true
+        fi
       fi
     fi
   fi
@@ -2535,8 +2560,14 @@ if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
   if __eubnt_install_unifi_controller; then
     if [[ -n "${__unifi_controller_package_version:-}" ]]; then
       available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
+      available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
       if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
         if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
+          __eubnt_add_key "C0A52C50" || true
+          __eubnt_run_command "apt-get update" "quiet" || true
+        fi
+      elif __eubnt_version_compare "${__unifi_controller_package_version}" "eq" "${available_version_lts}"; then
+        if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian unifi-5.6 ubiquiti" "100-ubnt-unifi.list" "unifi.*debian unifi-5.6 ubiquiti"; then
           __eubnt_add_key "C0A52C50" || true
           __eubnt_run_command "apt-get update" "quiet" || true
         fi
