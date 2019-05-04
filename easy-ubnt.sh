@@ -1238,20 +1238,22 @@ function __eubnt_ubnt_get_product() {
           if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
             latest_download_url="${check_download_url}"
           fi
-          IFS='.' read -r -a version_array <<< "${found_version}"
-          local check_patch=$(( version_array[2]+1 ))
-          local max_patch=$(( version_array[2]+10 ))
-          local check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
-          while [[ "${check_version:-}" =~ ${__regex_version_full} && ${check_patch} -le ${max_patch} ]]; do
-            check_download_url="https://dl.ubnt.com/unifi/${check_version}/unifi_sysvinit_all.deb"
-            if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
-              latest_download_url="${check_download_url}"
-              found_version="${check_version}"
-              break
-            fi
-            (( check_patch++ ))
-            check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
-          done
+          if [[ ! "${2}" =~ ${__regex_version_full} ]]; then
+            IFS='.' read -r -a version_array <<< "${found_version}"
+            local check_patch=$(( version_array[2]+1 ))
+            local max_patch=$(( version_array[2]+10 ))
+            local check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+            while [[ "${check_version:-}" =~ ${__regex_version_full} && ${check_patch} -le ${max_patch} ]]; do
+              check_download_url="https://dl.ubnt.com/unifi/${check_version}/unifi_sysvinit_all.deb"
+              if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
+                latest_download_url="${check_download_url}"
+                found_version="${check_version}"
+                break
+              fi
+              (( check_patch++ ))
+              check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+            done
+          fi
           if [[ "${3:-}" = "url" && "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
             download_url="${latest_download_url}"
           fi
