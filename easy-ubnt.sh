@@ -382,7 +382,6 @@ while getopts ":c:d:f:i:p:ahqtvx" options; do
       __eubnt_add_to_log "Command line option: enabled verbose mode";;
     x)
       set -o xtrace
-      set +o errexit
       __script_debug=true
       __eubnt_add_to_log "Command line option: enabled xtrace debugging";;
     *)
@@ -408,7 +407,6 @@ fi
 # Unset global script variables
 function __eubnt_cleanup_before_exit() {
   if [[ -z "${__ubnt_product_command:-}" ]]; then
-    local clearscreen=""
     __eubnt_show_header "Cleaning up script, please wait...\\n"
   fi
   if [[ -n "${__run_autoremove:-}" ]]; then
@@ -455,6 +453,7 @@ function __eubnt_cleanup_before_exit() {
   if [[ -n "${__reboot_system:-}" ]]; then
     shutdown -r now
   fi
+  set +o xtrace
   __eubnt_add_to_log "Dumping variables to log..."
   for var_name in ${!__*}; do
     if [[ -n "${!var_name:-}" && "${var_name}" != "__script_contributors" ]]; then
@@ -956,10 +955,10 @@ function __eubnt_run_command() {
   set +o errexit
   set +o errtrace
   if [[ ( -n "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
-    "${full_command[@]}" | tee -a "${__script_log}"
+    "${full_command[@]}" | tee -a "${__script_log}" || true
     command_status=$?
   elif [[ "${2:-}" = "quiet" ]]; then
-    "${full_command[@]}" &>>"${__script_log}"
+    "${full_command[@]}" &>>"${__script_log}" || true
     command_status=$?
   else
     "${full_command[@]}" &>>"${__script_log}" &
@@ -1858,11 +1857,11 @@ function __eubnt_install_mongodb()
 function __eubnt_install_dependencies()
 {
   __eubnt_install_package "apt-transport-https"
-  __eubnt_install_package "sudo" || true
-  __eubnt_install_package "curl" || true
-  __eubnt_install_package "net-tools" || true
-  __eubnt_install_package "dnsutils" || true
-  __eubnt_install_package "psmisc" || true
+  __eubnt_install_package "sudo"
+  __eubnt_install_package "curl"
+  __eubnt_install_package "net-tools"
+  __eubnt_install_package "dnsutils"
+  __eubnt_install_package "psmisc"
   __eubnt_install_package "jq"
 }
 
