@@ -13,6 +13,17 @@ wget https://github.com/sprockteam/easy-ubnt/raw/master/easy-ubnt.sh -O easy-ubn
 sudo bash easy-ubnt.sh
 ```
 
+For convenience, the script is also available using a short link:
+```console
+wget sprocket.link/eubnt -O easy-ubnt.sh && sudo bash easy-ubnt.sh
+```
+
+### Dev branch
+You can run the latest development version of the script this way:
+```console
+wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
+```
+
 ### Quick mode
 You can run the script to quickly deploy a server this way:
 ```console
