@@ -10,7 +10,7 @@
 __script_title="Easy UBNT"
 __script_name="easy-ubnt"
 __script_name_short="eubnt"
-__script_version="v0.6.3-dev"
+__script_version="v0.6.3"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Adrian Miller (adrianmmiller)
@@ -99,7 +99,9 @@ function __eubnt_show_help() {
   -a          Accept and skip the license agreement
   -c          Command to issue to product, used with -p
               Currently supported commands:
-              'archive_all_alerts'
+              'get-installed-version'
+              'get-available-version'
+              'get-available-download'
   -d [arg]    Specify what domain name (FQDN) to use in the script
   -f [arg]    Enable or disable UFW firewall
               Currently supported options:
@@ -2553,14 +2555,14 @@ if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
     if [[ $? -eq 1 ]]; then
       __eubnt_show_error "Unable to install UniFi Network Controller!"
     elif [[ $? -eq 2 ]]; then
-      __eubnt_show_warning "UniFi Network Controller installation cancelled!"      
+      __eubnt_show_warning "UniFi Network Controller installation cancelled!"
+      echo
     fi
   fi
   remove_source_list=true
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
     available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
     available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
-    echo
     if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
       if __eubnt_question_prompt "Add stable source list for UniFi Network Controller to apt-get?"; then
         if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
