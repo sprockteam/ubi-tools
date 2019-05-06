@@ -1517,12 +1517,12 @@ function __eubnt_install_unifi_controller()
   if [[ -n "${__unifi_controller_package_version:-}" ]]; then
     versions_to_select+=("${__unifi_controller_package_version}" "   Reinstall this version")
   fi
-  if [[ -n "${__ubnt_product_version:-}" && -n "${available_version_selected:-}" ]]; then
+  if [[ -n "${__ubnt_product_version:-}" && "${available_version_selected:-}" =~ ${__regex_version_full} ]]; then
     selected_version="${available_version_selected}"
   elif [[ -n "${__quick_mode:-}" && -z "${__unifi_controller_package_version:-}" && -n "${available_version_stable:-}" ]]; then
     selected_version="${available_version_stable}"
   elif [[ -n "${__quick_mode:-}" && -n "${__unifi_controller_package_version:-}" ]]; then
-    return 1
+    return 3
   else
     local add_lts_version=
     local add_stable_version=
@@ -1547,7 +1547,7 @@ function __eubnt_install_unifi_controller()
     versions_to_select+=("Other" "   Enter a version number" "Beta" "   Enter a beta or unstable URL")
     selected_version="$(__eubnt_show_whiptail "menu" "UniFi Network Controller" "versions_to_select")"
     if [[ -z "${selected_version:-}" || "${selected_version:-}" = "Cancel" ]]; then
-      return 1
+      return 2
     fi
     if [[ "${selected_version}" = "Other" ]]; then
       get_ubnt_url=
@@ -1558,31 +1558,22 @@ function __eubnt_install_unifi_controller()
         __eubnt_get_user_input "What version (i.e. 5.7 or 5.8.30) do you want to install?" "what_other_version" "optional"
         if [[ -z "${what_other_version:-}" ]]; then
           echo
-          if ! __eubnt_question_prompt "Do you want to continue installation?" "return" "n"; then
-            return 1
-          else
-            continue
-          fi
+          __eubnt_question_prompt "Do you want to continue installation?" "return" "n" || return 2
+          continue
         else
           if [[ "${what_other_version:-}" =~ ${__regex_version_full} || "${what_other_version:-}" =~ ${__regex_version_major_minor} ]]; then
             selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_other_version}" | tail --lines=1 || true)"
             if [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; then
               echo
-              if ! __eubnt_question_prompt "Version ${what_other_version} isn't available, do you want to try another?"; then
-                return 1
-              else
-                continue
-              fi
+              __eubnt_question_prompt "Version ${what_other_version} isn't available, do you want to try another?" || return 2
+              continue
             else
               break
             fi
           else
             echo
-            if ! __eubnt_question_prompt "Version ${what_other_version} is invalid, do you want to try another?"; then
-              return 1
-            else
-              continue
-            fi
+            __eubnt_question_prompt "Version ${what_other_version} is invalid, do you want to try another?" || return 2
+            continue
           fi
         fi
       done
@@ -1595,21 +1586,15 @@ function __eubnt_install_unifi_controller()
         __eubnt_get_user_input "Please enter a package URL to download and install?" "what_ubnt_url" "optional"
         if [[ -z "${what_ubnt_url:-}" ]]; then
           echo
-          if ! __eubnt_question_prompt "Do you want to continue installation?" "return" "n"; then
-            return 1
-          else
-            continue
-          fi
+          __eubnt_question_prompt "Do you want to continue installation?" "return" "n" || return 2
+          continue
         else
           if [[ "${what_ubnt_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${what_ubnt_url}"; then
               selected_version="${what_ubnt_url}"
           else
             echo
-            if ! __eubnt_question_prompt "The URL is inaccessible or invalid, do you want to try another?"; then
-              return 1
-            else
-              continue
-            fi
+            __eubnt_question_prompt "The URL is inaccessible or invalid, do you want to try another?" || return 2
+            continue
           fi
         fi
       done
@@ -1632,10 +1617,13 @@ function __eubnt_install_unifi_controller()
     versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
     for version in "${!versions_to_install[@]}"; do
       if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
-        return 1
+        return $?
+      else
+        return 0
       fi
     done
   fi
+  return 1
 }
 
 # Installs the UniFi Network Controller based on a version number and download URL
@@ -1658,20 +1646,18 @@ function __eubnt_install_unifi_controller_version()
   __eubnt_initialize_unifi_controller_variables
   if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]]; then
     __eubnt_show_warning "Make sure you have a backup!\\n"
-    __eubnt_question_prompt || return 1
+    __eubnt_question_prompt || return 2
   fi
   if __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${install_this_version:-}"; then
     __eubnt_show_notice "UniFi Network Controller ${install_this_version} is already installed...\\n"
-    __eubnt_question_prompt "Are you sure you want to reinstall?" "return" "n" || return 1
+    __eubnt_question_prompt "Are you sure you want to reinstall?" "return" "n" || return 2
   elif __eubnt_version_compare "${__unifi_controller_package_version:-}" "gt" "${install_this_version:-}"; then
     __eubnt_show_warning "UniFi Network Controller ${install_this_version} is a previous version...\\n"
     if __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       echo
-      if ! __eubnt_run_command "dpkg --purge --force-all unifi"; then
-        return 1
-      fi
+      __eubnt_run_command "dpkg --purge --force-all unifi" || return 1
     else
-      return 1
+      return 2
     fi
   fi
   __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}...\\n"
@@ -1680,7 +1666,7 @@ function __eubnt_install_unifi_controller_version()
     if __eubnt_question_prompt "Do you want to view the release notes?" "return" "n"; then
       echo
       more "${release_notes}"
-      __eubnt_question_prompt || return 1
+      __eubnt_question_prompt || return 2
     fi
   fi
   __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}...\\n"
@@ -2562,25 +2548,40 @@ if [[ -z "${__is_cloud_key:-}" ]]; then
   fi
 fi
 if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
-  if __eubnt_install_unifi_controller; then
-    if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-      available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
-      available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
-      if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
+  remove_source_list=true
+  if ! __eubnt_install_unifi_controller; then
+    if [[ $? -eq 1 ]]; then
+      __eubnt_show_error "Unable to install UniFi Network Controller!"
+    elif [[ $? -eq 2 ]]; then
+      __eubnt_show_warning "UniFi Network Controller installation cancelled!"      
+    fi
+  fi
+  remove_source_list=true
+  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+    available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
+    available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
+    echo
+    if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
+      if __eubnt_question_prompt "Add stable source list for UniFi Network Controller to apt-get?"; then
         if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
           __eubnt_add_key "C0A52C50" || true
           __eubnt_run_command "apt-get update" "quiet" || true
+          remove_source_list=
         fi
-      elif __eubnt_version_compare "${__unifi_controller_package_version}" "eq" "${available_version_lts}"; then
+      fi
+    elif __eubnt_version_compare "${__unifi_controller_package_version}" "eq" "${available_version_lts}"; then
+      if __eubnt_question_prompt "Add 5.6 source list for UniFi Network Controller to apt-get?"; then
         if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian unifi-5.6 ubiquiti" "100-ubnt-unifi.list" "unifi.*debian unifi-5.6 ubiquiti"; then
           __eubnt_add_key "C0A52C50" || true
           __eubnt_run_command "apt-get update" "quiet" || true
-        fi
-      else
-        if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
-          __eubnt_run_command "apt-get update" "quiet" || true
+          remove_source_list=
         fi
       fi
+    fi
+  fi
+  if [[ -n "${remove_source_list:-}" ]]; then
+   if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
+     __eubnt_run_command "apt-get update" "quiet" || true
     fi
   fi
 fi
