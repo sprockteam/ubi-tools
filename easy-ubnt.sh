@@ -1810,10 +1810,10 @@ function __eubnt_install_updates() {
   if __eubnt_run_command "apt-get dist-upgrade --simulate" "quiet" "updates_available"; then
     num_updates_available="$(echo "${updates_available}" | grep --count "^Inst ")"
     if [[ "${num_updates_available:-}" -gt 0 ]]; then
-      __eubnt_show_notice "Updates (${num_updates_available:-}) available:"
+      __eubnt_show_notice "Package updates available!"
       __eubnt_show_text "$(echo "${updates_available}" | grep "^Inst" | awk '{print $2}')"
       echo
-      if __eubnt_question_prompt "Install available package upgrades?"; then
+      if __eubnt_question_prompt "Install available package updates (${num_updates_available})?"; then
         echo
         __eubnt_install_package "unattended-upgrades" || true
         if __eubnt_run_command "apt-get dist-upgrade --yes"; then
