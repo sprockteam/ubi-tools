@@ -1108,7 +1108,7 @@ function __eubnt_is_package_installed() {
 # $2: The name of the source list file to make on the local machine
 # $3: A search term to use when checking if the source list should be added
 function __eubnt_add_source() {
-  if [[ "${1:-}" && "${2:-}" && "${3:-}" ]]; then
+  if [[ -n "${1:-}" && -n "${2:-}" && -n "${3:-}" ]]; then
     if [[ ! $(find /etc/apt -name "*.list" -exec grep "${3}" {} \;) ]]; then
       if [[ -d "${__apt_sources_dir:-}" ]]; then
         __eubnt_echo_and_log "deb ${1}" "${__apt_sources_dir}/${2}"
@@ -1124,7 +1124,7 @@ function __eubnt_add_source() {
 #     If set to a value ending in ".list" then search for a filename
 #     If anything else, then search for a string in the list contents
 function __eubnt_remove_source() {
-  if [[ -n "${1:-}" && "${1:-}" = *".list" ]]; then
+  if [[ -n "${1:-}" && "${1}" = *".list" ]]; then
     find /etc/apt -name "*${1}" -exec mv --force {} {}.bak \;
     __eubnt_run_command "apt-get update" || true
     return 0
@@ -1551,10 +1551,10 @@ function __eubnt_install_unifi_controller()
     if [[ -z "${selected_version:-}" || "${selected_version:-}" = "Cancel" ]]; then
       return 2
     fi
-    if [[ "${selected_version}" = "Other" ]]; then
+    if [[ "${selected_version:-}" = "Other" ]]; then
       get_ubnt_url=
       local what_other_version=""
-      while [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; do
+      while [[ ! "${selected_version}" =~ ${__regex_version_full} ]]; do
         __eubnt_show_header "Installing UniFi Network Controller...\\n"
         what_other_version=""
         __eubnt_get_user_input "What version (i.e. 5.7 or 5.8.30) do you want to install?" "what_other_version" "optional"
@@ -1580,9 +1580,9 @@ function __eubnt_install_unifi_controller()
         fi
       done
     fi
-    if [[ "${selected_version}" = "Beta" ]] || __eubnt_version_compare "${selected_version}" "gt" "${available_version_stable}"; then
+    if [[ "${selected_version:-}" = "Beta" ]] || __eubnt_version_compare "${selected_version:-}" "gt" "${available_version_stable:-}"; then
       local what_ubnt_url=""
-      while [[ ! "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; do
+      while [[ ! "${selected_version}" =~ ${__regex_url_ubnt_deb} ]]; do
         __eubnt_show_header "Installing UniFi Network Controller...\\n"
         what_ubnt_url=""
         __eubnt_get_user_input "Please enter a package URL to download and install?" "what_ubnt_url" "optional"
@@ -2197,12 +2197,13 @@ function __eubnt_setup_ufw() {
   fi
   if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
     __eubnt_initialize_unifi_controller_variables
-    if [[ -n "${__unifi_controller_port_tcp_inform:-}" \
-       && -n "${__unifi_controller_port_tcp_admin:-}" \
-       && -n "${__unifi_controller_port_tcp_portal_http:-}" \
-       && -n "${__unifi_controller_port_tcp_portal_https:-}" \
-       && -n "${__unifi_controller_port_tcp_throughput:-}" \
-       && -n "${__unifi_controller_port_udp_stun:-}" ]]; then
+    if [[ -n "${__regex_port_number:-}" \
+       && "${__unifi_controller_port_tcp_inform:-}" =~ ${__regex_port_number} \
+       && "${__unifi_controller_port_tcp_admin:-}" =~ ${__regex_port_number} \
+       && "${__unifi_controller_port_tcp_portal_http:-}" =~ ${__regex_port_number} \
+       && "${__unifi_controller_port_tcp_portal_https:-}" =~ ${__regex_port_number} \
+       && "${__unifi_controller_port_tcp_throughput:-}" =~ ${__regex_port_number} \
+       && "${__unifi_controller_port_udp_stun:-}" =~ ${__regex_port_number} ]]; then
       apps_to_allow+=("UniFi-Network")
       tee "/etc/ufw/applications.d/unifi-controller" &>/dev/null <<EOF
 [UniFi-Network-Inform]
@@ -2480,35 +2481,39 @@ if [[ -z "${__accept_license:-}" ]]; then
 fi
 __eubnt_show_header "Checking system...\\n"
 __eubnt_run_command "apt-mark hold unifi" "quiet" || true
-if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
-  __eubnt_run_command "apt-get update" || true
+if [[ -d "${__apt_sources_dir:-}" ]]; then
+  if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
+    __eubnt_run_command "apt-get update" || true
+  fi
 fi
 __eubnt_install_dependencies
 ubnt_dl_ip=""
 __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
 ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
-if [[ ! "${ubnt_dl_ip:-}" =~ ${__regex_ip_address} ]]; then
-  __eubnt_show_error "Unable to resolve ${__ubnt_dl} using the following nameservers: ${__nameservers}"
+if [[ -n "${__regex_ip_address:-}" && ! "${ubnt_dl_ip:-}" =~ ${__regex_ip_address} ]]; then
+  __eubnt_show_error "Unable to resolve ${__ubnt_dl:-} using the following nameservers: ${__nameservers:-}"
 else
   __eubnt_show_success "DNS appears to be working!"
 fi
-show_disk_free_space="$([[ "${__disk_free_space_gb}" -lt 2 ]] && echo "${__disk_free_space_mb}MB" || echo "${__disk_free_space_gb}GB" )"
+show_disk_free_space="$([[ "${__disk_free_space_gb:-}" -lt 2 ]] && echo "${__disk_free_space_mb:-}MB" || echo "${__disk_free_space_gb:-}GB" )"
 __eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
-if [[ "${__disk_free_space_gb}" -lt ${__recommended_disk_free_space_gb} ]]; then
-  __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
-else
-  if [[ "${__disk_free_space_gb}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
-    have_space_for_swap=true
+if [[ -n "${__recommended_disk_free_space_gb:-}" && -n "${__recommended_swap_total_gb:-}" ]]; then
+  if [[ "${__disk_free_space_gb:-}" -lt ${__recommended_disk_free_space_gb} ]]; then
+    __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
+  else
+    if [[ "${__disk_free_space_gb:-}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
+      have_space_for_swap=true
+    fi
   fi
 fi
-show_memory_total="$([[ "${__memory_total_gb}" -le 1 ]] && echo "${__memory_total_mb}MB" || echo "${__memory_total_gb}GB" )"
+show_memory_total="$([[ "${__memory_total_gb:-}" -le 1 ]] && echo "${__memory_total_mb:-}MB" || echo "${__memory_total_gb:-}GB" )"
 __eubnt_show_text "Memory total size is ${__colors_bold_text}${show_memory_total}${__colors_default}"
-if [[ "${__memory_total_gb}" -lt ${__recommended_memory_total_gb} ]]; then
+if [[ "${__memory_total_gb:-}" -lt ${__recommended_memory_total_gb} ]]; then
   __eubnt_show_warning "Memory total size is below ${__colors_bold_text}${__recommended_memory_total_gb}GB${__colors_default}"
 fi
-show_swap_total="$([[ "${__swap_total_gb}" -le 1 ]] && echo "${__swap_total_mb}MB" || echo "${__swap_total_gb}GB" )"
+show_swap_total="$([[ "${__swap_total_gb:-}" -le 1 ]] && echo "${__swap_total_mb:-}MB" || echo "${__swap_total_gb:-}GB" )"
 __eubnt_show_text "Swap total size is ${__colors_bold_text}${show_swap_total}${__colors_default}"
-if [[ "${__swap_total_mb}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
+if [[ "${__swap_total_mb:-}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
   if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?"; then
     __eubnt_setup_swap_file
   fi
