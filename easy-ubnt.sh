@@ -438,7 +438,7 @@ function __eubnt_cleanup_before_exit() {
   fi
   echo -e "${__colors_default:-}"
   if [[ -d "${__sshd_dir:-}" ]]; then
-    local ssh_backups_to_delete="$(find "${__sshd_config}.bak"* -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>2')"
+    local ssh_backups_to_delete="$(find "${__sshd_dir}" -maxdepth 1 -type f -name "sshd_config.bak*" -print0 2>/dev/null | xargs -0 --exit ls -t | awk 'NR>2')"
     if [[ -n "${ssh_backups_to_delete:-}" ]]; then
       echo "${ssh_backups_to_delete}" | xargs --max-lines=1 rm
     fi
