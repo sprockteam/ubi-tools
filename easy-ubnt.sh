@@ -2534,7 +2534,11 @@ if [[ -n "${__is_cloud_key:-}" ]]; then
   __eubnt_show_warning "This script isn't fully tested with Cloud Key!\\n"
   __eubnt_question_prompt "" "exit"
 else
-  __eubnt_show_timer
+  if [[ -n "${__quick_mode:-}" ]]; then
+    __eubnt_show_timer
+  else
+    __eubnt_question_prompt "" "exit"
+  fi
 fi
 if [[ -z "${__is_cloud_key:-}" ]]; then
   __eubnt_common_fixes
