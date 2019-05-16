@@ -429,6 +429,8 @@ function __eubnt_cleanup_before_exit() {
           __sshd_port="$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')"
           if [[ -f "/etc/ufw/applications.d/openssh-server" ]]; then
             sed -i "s|^ports=.*|ports=${__sshd_port}/tcp|" "/etc/ufw/applications.d/openssh-server"
+            __eubnt_run_command "ufw app update all" "quiet" || true
+            __eubnt_run_command "ufw reload" "quiet" || true
           fi
           __eubnt_run_command "service ssh restart" "quiet" || true
         fi
@@ -2241,7 +2243,10 @@ EOF
   fi
   __eubnt_show_notice "Current UFW status:"
   echo
-  __eubnt_run_command "ufw app update all" "quiet" || true
+  if ufw status | grep --quiet " active"; then
+    __eubnt_run_command "ufw app update all" "quiet" || true
+    __eubnt_run_command "ufw reload" "quiet" || true
+  fi
   __eubnt_run_command "ufw status verbose" "foreground" || true
   if ! ufw status | grep --quiet " active"; then
     echo
