@@ -2107,7 +2107,7 @@ EOF
     chmod +x "${post_hook_script}"
     local force_renewal="--keep-until-expiring"
     local run_mode="--keep-until-expiring"
-    if [[ "${days_to_renewal}" -ge 30 ]]; then
+    if [[ "${days_to_renewal:-}" -ge 30 ]]; then
       if __eubnt_question_prompt "Do you want to force certificate renewal?" "return" "n"; then
         force_renewal="--force-renewal"
       fi
