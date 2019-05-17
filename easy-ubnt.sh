@@ -192,7 +192,6 @@ __recommended_swap_total_gb="2"
 __nameservers="$(awk '/nameserver/{print $2}' /etc/resolv.conf | xargs)"
 __is_user_sudo="$([[ -n "${SUDO_USER:-}" ]] && echo -n true || echo -n)"
 __hostname_local="$(hostname --short)"
-__hostname_fqdn="$(hostname --fqdn)"
 export DEBIAN_FRONTEND="noninteractive"
 
 # Package decision variables
@@ -323,7 +322,7 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:f:i:p:ahqtvx" options; do
+while getopts ":c:d:f:i:p:s:ahqtvx" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -345,6 +344,9 @@ while getopts ":c:d:f:i:p:ahqtvx" options; do
       if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "off" ]]; then
         __ufw_disable=true
         __eubnt_add_to_log "Command line option: disable firewall"
+      elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
+        __ufw_skip=true
+        __eubnt_add_to_log "Command line option: skip firewall setup"
       fi;;
     h|\?)
       __eubnt_show_help;;
@@ -377,6 +379,11 @@ while getopts ":c:d:f:i:p:ahqtvx" options; do
     q)
       __quick_mode=true
       __eubnt_add_to_log "Command line option: enabled quick mode";;
+    s)
+      if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
+        __ssh_skip=true
+        __eubnt_add_to_log "Command line option: skip SSH setup"
+      fi;;
     t)
       __script_test_mode=true
       __eubnt_add_to_log "Command line option: running in test mode";;
@@ -1895,6 +1902,9 @@ function __eubnt_install_dependencies()
 # Hardening the OpenSSH Server config according to best practices (https://gist.github.com/nvnmo/91a20f9e72dffb9922a01d499628040f | https://linux-audit.com/audit-and-harden-your-ssh-configuration/)
 # De-duplicate SSH config file (https://stackoverflow.com/a/1444448)
 function __eubnt_setup_ssh_server() {
+  if [[ -n "${__ssh_skip:-}" ]]; then
+    return 1
+  fi
   __eubnt_show_header "Setting up OpenSSH Server..."
   if ! __eubnt_is_package_installed "openssh-server"; then
     echo
@@ -2189,7 +2199,9 @@ function __eubnt_allow_hosts_ufw_app() {
 # Adds an app profile that includes all UniFi Network ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
-  if [[ -n "${__ufw_disable:-}" ]]; then
+  if [[ -n "${__ufw_skip:-}" ]]; then
+    return 1
+  elif [[ -n "${__ufw_disable:-}" ]]; then
     if __eubnt_is_command "ufw"; then
       __eubnt_run_command "ufw --force disable" || true
     fi
