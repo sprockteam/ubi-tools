@@ -15,7 +15,7 @@ __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Adrian Miller (adrianmmiller)
 Frank Gabriel (Frankedinven)"
-__script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT"
+__script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT, S0lutionS"
 
 ### Copyrights, Mentions and Credits
 ##############################################################################
@@ -255,6 +255,7 @@ __sshd_config="${__sshd_dir}/sshd_config"
 __sshd_port="$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')"
 __letsencrypt_dir="/etc/letsencrypt"
 __regex_ip_address='^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?$'
+__regex_ip_address_list='^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|1[0-9]|2[0-9]|3[0-2]))?(,)?)+$'
 __regex_port_number='^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'
 __regex_url='^http(s)?:\/\/\S+$'
 __regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
@@ -2159,17 +2160,27 @@ EOF
 # $1: A string matching to the name of a UFW app
 # $2: A string containing a comma separated list of IP address or networks
 function __eubnt_allow_hosts_ufw_app() {
-  if [[ -n "${1:-}" && -n "${2:-}" ]]; then
+  if [[ -n "${1:-}" ]]; then
     local allowed_host=""
     local allowed_app="${1}"
-    IFS=',' read -r -a host_addresses <<< "${2}"
-    for host_address in "${!host_addresses[@]}"; do
-      allowed_host="${host_addresses[$host_address]}"
-      if [[ "${allowed_host}" =~ ${__regex_ip_address} ]]; then
-        __eubnt_run_command "ufw allow from ${allowed_host} to any app ${allowed_app}"
+    if [[ ! "${2:-any}" =~ ${__regex_ip_address_list} ]]; then
+      if ! __eubnt_run_command "ufw allow from any to any app ${allowed_app}"; then
+        return 1
+      else
+        return 0
       fi
-    done
-    return 0
+    elif [[ "${2:-}" =~ ${__regex_ip_address_list} ]]; then
+      IFS=',' read -r -a host_addresses <<< "${2}"
+      for host_address in "${!host_addresses[@]}"; do
+        allowed_host="${host_addresses[$host_address]}"
+        if [[ "${allowed_host}" =~ ${__regex_ip_address} ]]; then
+          if ! __eubnt_run_command "ufw allow from ${allowed_host} to any app ${allowed_app}"; then
+            return 1
+          fi
+        fi
+      done
+      return 0
+    fi
   fi
   return 1
 }
@@ -2268,33 +2279,31 @@ EOF
       declare -a app_list=($(ufw app list | grep --extended-regexp "${apps_to_check}" | awk '{print $1}'))
       for app_name in "${!app_list[@]}"; do
         allowed_app="${app_list[$app_name]}"
-        if [[ "${allowed_app}" = "UniFi-Network-Local" ]]; then
-          allow_access="n"
-        else
-          allow_access="y"
-        fi
-        echo
-        __eubnt_run_command "ufw app info ${allowed_app}" "foreground" || true
-        echo
-        if __eubnt_question_prompt "Do you want to allow access to these ports?" "return" "${allow_access:-n}"; then
-          hosts_to_allow=""
-          activate_ufw=true
-          if [[ -z "${__quick_mode:-}" ]]; then
-            echo
-            __eubnt_get_user_input "IP(s) to allow, separated by commas, default is 'any': " "hosts_to_allow" "optional"
-            echo
+        if [[ -n "${allowed_app:-}" ]]; then
+          if [[ "${allowed_app}" = "UniFi-Network-Local" ]]; then
+            allow_access="n"
+          else
+            allow_access="y"
           fi
-          if [[ -z "${hosts_to_allow:-}" ]]; then
-            if ! __eubnt_run_command "ufw allow from any to any app ${allowed_app}"; then
-              __eubnt_show_warning "Unable to allow app ${allowed_app:-}"
+          echo
+          __eubnt_run_command "ufw app info ${allowed_app}" "foreground" || true
+          echo
+          if __eubnt_question_prompt "Do you want to allow access to these ports?" "return" "${allow_access:-n}"; then
+            activate_ufw=true
+            if [[ -z "${__quick_mode:-}" ]]; then
+              echo
+              __eubnt_get_user_input "IP(s) to allow, separated by commas, leave blank to allow any: " "hosts_to_allow" "optional"
+              echo
+            fi
+            if [[ ! "${hosts_to_allow:-}" =~ ${__regex_ip_address_list} ]]; then
+              hosts_to_allow="any"
+            fi
+            if ! __eubnt_allow_hosts_ufw_app "${allowed_app}" "${hosts_to_allow:-any}"; then
+              __eubnt_show_warning "Unable to allow ${hosts_to_allow:-any} to app ${allowed_app}"
             fi
           else
-            if __eubnt_allow_hosts_ufw_app "${allowed_app}" "${hosts_to_allow}"; then
-              hosts_to_allow=""
-            fi
+            __eubnt_run_command "ufw --force delete allow ${allowed_app}" "quiet" || true
           fi
-        else
-          __eubnt_run_command "ufw --force delete allow ${allowed_app}" "quiet" || true
         fi
       done
       if [[ -n "${activate_ufw:-}" ]]; then
