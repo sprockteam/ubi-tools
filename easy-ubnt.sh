@@ -509,6 +509,7 @@ function __eubnt_show_error() {
   echo -e "${__colors_default}"
   echo
   echo -e "Pausing for 10 seconds..."
+  echo
   sleep 10
   __script_error=true
   exit 1
@@ -1903,7 +1904,7 @@ function __eubnt_setup_ssh_server() {
       fi
     fi
   fi
-  if [[ $(dpkg --list | grep "openssh-server") && -f "${__sshd_config}" ]]; then
+  if [[ -f "${__sshd_config:-}" ]] && __eubnt_is_package_installed "openssh-server"; then
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
     __eubnt_show_notice "Checking OpenSSH server settings for recommended changes..."
     echo
@@ -1942,7 +1943,7 @@ function __eubnt_setup_ssh_server() {
           if grep --quiet ".*${setting_name}.*" "${__sshd_config}"; then
             sed -i "s/^.*${setting_name}.*$/${recommended_setting}/" "${__sshd_config}"
           else
-            echo "${recommended_setting}" >>"${__sshd_config}"
+            echo "${recommended_setting}" | tee -a "${__sshd_config}"
           fi
           __restart_ssh_server=true
         fi
@@ -2484,14 +2485,7 @@ if [[ -z "${__accept_license:-}" ]]; then
   __eubnt_show_timer "5" "${__colors_notice_text}Thanks for playing! Here we go!${__colors_default}"
   echo
 fi
-__eubnt_show_header "Checking system...\\n"
-__eubnt_run_command "apt-mark hold unifi" "quiet" || true
-if [[ -d "${__apt_sources_dir:-}" ]]; then
-  if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
-    __eubnt_run_command "apt-get update" || true
-  fi
-fi
-__eubnt_install_dependencies
+__eubnt_show_header "Checking system..."
 ubnt_dl_ip=""
 __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
 ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
@@ -2526,9 +2520,16 @@ fi
 if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
   __eubnt_initialize_unifi_controller_variables
   if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+    __eubnt_run_command "apt-mark hold unifi" "quiet" || true
+    if [[ -d "${__apt_sources_dir:-}" ]]; then
+      __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet" || true
+    fi
     __eubnt_show_notice "UniFi Network Controller ${__unifi_controller_package_version} is installed"
   fi
 fi
+echo
+__eubnt_run_command "apt-get update" || true
+__eubnt_install_dependencies
 echo
 if [[ -n "${__is_cloud_key:-}" ]]; then
   __eubnt_show_warning "This script isn't fully tested with Cloud Key!\\n"
