@@ -456,7 +456,9 @@ function __eubnt_cleanup_before_exit() {
     __eubnt_run_command "apt-get autoremove --yes" || true
     __eubnt_run_command "apt-get autoclean --yes" || true
   fi
-  __eubnt_run_command "apt-mark unhold unifi" "quiet" || true
+  if __eubnt_is_package_installed "unifi"; then
+    __eubnt_run_command "apt-mark unhold unifi" "quiet" || true
+  fi
   export DEBIAN_FRONTEND="dialog"
   if [[ -n "${__restart_ssh_server:-}" ]]; then
     if __eubnt_run_command "service ssh restart"; then
