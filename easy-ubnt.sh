@@ -1246,7 +1246,10 @@ function __eubnt_ubnt_get_product() {
     local version_minor=""
     local version_patch=""
     IFS='.' read -r -a version_array <<< "${2}"
-    if [[ "${where_to_look:-}" = "ubnt" ]]; then
+    if [[ "${where_to_look:-}" = "ubnt" && ( ${#version_array[@]} -gt 0 || "${2}" = "stable" ) ]]; then
+      if ! __eubnt_is_package_installed "jq"; then
+        __eubnt_install_package "jq"
+      fi
       if [[ -n "${version_array[0]:-}" && "${version_array[0]}" =~ ${__regex_number} ]]; then
         version_major="&filter=eq~~version_major~~${version_array[0]}"
       fi
