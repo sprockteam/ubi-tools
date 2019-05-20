@@ -19,59 +19,65 @@ wget sprocket.link/eubnt -O easy-ubnt.sh && sudo bash easy-ubnt.sh
 ```
 
 ### Dev branch
-You can run the latest development version of the script this way:
+You can run the latest development branch version of the script this way:
 ```console
 wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/development/easy-ubnt.sh -O easy-ubnt.sh
 sudo bash easy-ubnt.sh
 ```
 
-Or for convenience, you can run the dev version this way:
+Or for convenience, you can run the dev branch version this way:
 ```console
 wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
 ```
 
-### Quick mode
-You can run the script to quickly deploy a server this way:
+### Script command-line useage
+```console
+  Note:
+  This script currently requires root access.
+
+  Usage:
+  sudo bash ${__script_name}.sh [options]
+
+  Options:
+  -a          Accept and skip the license agreement screen
+  -c [arg]    Specify a command to issue to a product, used with -p
+              The script will execute the specified command only and then exit
+              Currently supported commands:
+              'get-installed-version' - Show currently installed package version
+              'get-available-version' - Show latest available version number
+              'get-available-download' - Show latest available download URL
+  -d [arg]    Specify the domain name (FQDN) to use in the script
+  -f [arg]    Specify an option for the firewall setup
+              If not specified, the firewall (UFW) will be enabled
+              Currently supported options:
+              'off' - Disable the firewall
+              'skip' - Don't make any firewall changes
+  -h          Show this help screen
+  -i [arg]    Specify a UBNT product version to install, used with -p
+              Currently supported syntax examples:
+              '5.9.29', 'stable', '5.7'
+              Can also use 'skip' to bypass any UBNT product changes
+  -l [arg]    Specify an option for the Let's Encrypt setup
+              Currently supported options:
+              'skip' - Don't do any Let's Encrypt setup
+  -p [arg]    Specify which UBNT product to administer
+              Currently supported products:
+              'unifi-controller' (default)
+  -q          Run the script in quick mode, accepting all default answers
+  -s [arg]    Specify an option for the SSH server setup
+              Currently supported options:
+              '<port>' - Specify a port number to use
+              'off' - Disable SSH
+              'skip' - Don't do anything with SSH
+  -t          Bypass normal script execution and run tests
+  -v          Enable verbose screen output
+  -x          Enable script execution tracing
+```
+
+### Quick mode example
+You can run the script this way to quickly deploy a server with a Let's Encrypt cert and a basic firewall:
 ```console
 wget sprocket.link/eubnt -qO easy-ubnt.sh && sudo bash easy-ubnt.sh -aqd unifi.fqdn.com
-```
-
-### More script options
-You can automatically skip the license screen:
-```console
-sudo bash easy-ubnt.sh -a
-```
-
-You can set the domain name to use when setting up Let's Encrypt:
-```console
-sudo bash easy-ubnt.sh -d domain.com
-```
-
-You can disable the UFW firewall:
-```console
-sudo bash easy-ubnt.sh -f off
-```
-
-You can see an explanation of the script options:
-```console
-sudo bash easy-ubnt.sh -h
-```
-
-You can run the script in "quick" mode to accept the default answers to questions:
-```console
-sudo bash easy-ubnt.sh -q
-```
-
-**Note:** Even in quick mode, some questions may require a user response.
-
-You can get verbose output of commands during script run:
-```console
-sudo bash easy-ubnt.sh -v
-```
-
-You can trace each command on the screen to see what the script is doing:
-```console
-sudo bash easy-ubnt.sh -x
 ```
 
 ### Script Logging

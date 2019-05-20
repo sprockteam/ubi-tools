@@ -87,7 +87,12 @@ if ! command -v apt-get &>/dev/null; then
 fi
 
 # Display basic usage information and exit
+# $1: An optional message to display
 function __eubnt_show_help() {
+  if [[ -n "${1:-}" ]]; then
+    echo
+    echo -e "${1}"
+  fi
   echo -e "
   Note:
   This script currently requires root access.
@@ -96,25 +101,37 @@ function __eubnt_show_help() {
   sudo bash ${__script_name}.sh [options]
 
   Options:
-  -a          Accept and skip the license agreement
-  -c          Command to issue to product, used with -p
+  -a          Accept and skip the license agreement screen
+  -c [arg]    Specify a command to issue to a product, used with -p
+              The script will execute the specified command only and then exit
               Currently supported commands:
-              'get-installed-version'
-              'get-available-version'
-              'get-available-download'
-  -d [arg]    Specify what domain name (FQDN) to use in the script
-  -f [arg]    Enable or disable UFW firewall
+              'get-installed-version' - Show currently installed package version
+              'get-available-version' - Show latest available version number
+              'get-available-download' - Show latest available download URL
+  -d [arg]    Specify the domain name (FQDN) to use in the script
+  -f [arg]    Specify an option for the firewall setup
+              If not specified, the firewall (UFW) will be enabled
               Currently supported options:
-              'on' (default)
-              'off'
+              'off' - Disable the firewall
+              'skip' - Don't make any firewall changes
   -h          Show this help screen
-  -i [arg]    Specify a version to install, used with -p
-              Examples: '5.9.29', 'stable, '5.7'
+  -i [arg]    Specify a UBNT product version to install, used with -p
+              Currently supported syntax examples:
+              '5.9.29', 'stable', '5.7'
+              Can also use 'skip' to bypass any UBNT product changes
+  -l [arg]    Specify an option for the Let's Encrypt setup
+              Currently supported options:
+              'skip' - Don't do any Let's Encrypt setup
   -p [arg]    Specify which UBNT product to administer
               Currently supported products:
               'unifi-controller' (default)
   -q          Run the script in quick mode, accepting all default answers
-  -t          Bypass script execution and run tests
+  -s [arg]    Specify an option for the SSH server setup
+              Currently supported options:
+              '<port>' - Specify a port number to use
+              'off' - Disable SSH
+              'skip' - Don't do anything with SSH
+  -t          Bypass normal script execution and run tests
   -v          Enable verbose screen output
   -x          Enable script execution tracing\\n"
   exit 1
@@ -322,7 +339,7 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:f:i:p:s:ahqtvx" options; do
+while getopts ":c:d:f:i:l:p:s:ahqtvx" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -331,32 +348,43 @@ while getopts ":c:d:f:i:p:s:ahqtvx" options; do
       if [[ -n "${OPTARG:-}" ]]; then
         __ubnt_product_command="${OPTARG}"
       else
-        __eubnt_show_help
+        __eubnt_show_help "ERROR: Option -c requires a command argument"
       fi;;
     d)
       if [[ -n "${OPTARG:-}" ]]; then
-        __hostname_fqdn="${OPTARG}"
-        __eubnt_add_to_log "Command line option: specified domain name ${__hostname_fqdn}"
+        __option_fqdn="${OPTARG}"
+        __eubnt_add_to_log "Command line option: specified domain name ${__option_fqdn}"
       else
-        __eubnt_show_help
+        __eubnt_show_help "ERROR: Option -d requires a domain name"
       fi;;
     f)
       if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "off" ]]; then
-        __ufw_disable=true
+        __option_firewall_setup="off"
         __eubnt_add_to_log "Command line option: disable firewall"
       elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
-        __ufw_skip=true
+        __option_firewall_setup="skip"
         __eubnt_add_to_log "Command line option: skip firewall setup"
+      else
+        __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
     h|\?)
       __eubnt_show_help;;
     i)
       if [[ -n "${OPTARG:-}" && ( "${OPTARG:-}" = "stable" || \
          ( "${OPTARG:-}" =~ ${__regex_version_full} || "${OPTARG:-}" =~ ${__regex_version_major_minor} ) ) ]]; then
-        __ubnt_product_version="${OPTARG}"
-        __eubnt_add_to_log "Command line option: specified UBNT product version ${__ubnt_product_version}"
+        __option_ubnt_product_setup="${OPTARG}"
+        __eubnt_add_to_log "Command line option: specified UBNT product version ${__option_ubnt_product_setup}"
+      elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
+        __option_ubnt_product_setup="skip"
       else
-        __eubnt_show_help
+        __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
+      fi;;
+    l)
+      if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
+        __option_lets_encrypt_setup="skip"
+        __eubnt_add_to_log "Command line option: skip Let's Encrypt setup"
+      else
+        __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
     p)
       if [[ -n "${OPTARG:-}" ]]; then
@@ -374,15 +402,20 @@ while getopts ":c:d:f:i:p:s:ahqtvx" options; do
       if [[ -n "${__ubnt_selected_product:-}" ]]; then
         __eubnt_add_to_log "Command line option: selected UBNT product ${__ubnt_selected_product}"
       else
-        __eubnt_show_help
+        __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
     q)
       __quick_mode=true
       __eubnt_add_to_log "Command line option: enabled quick mode";;
     s)
       if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
-        __ssh_skip=true
+        __option_sshd_setup="skip"
         __eubnt_add_to_log "Command line option: skip SSH setup"
+      elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" =~ ${__regex_port_number} ]]; then
+        __option_sshd_setup="${OPTARG}"
+        __eubnt_add_to_log "Command line option: using port ${OPTARG} for SSH setup"
+      else
+        __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
     t)
       __script_test_mode=true
@@ -402,7 +435,7 @@ if [[ -z "${__ubnt_selected_product:-}" ]]; then
   __ubnt_selected_product="unifi-controller"
   __eubnt_add_to_log "Default option: selected UBNT product ${__ubnt_selected_product}"
 fi
-if [[ ( -n "${__ubnt_product_version:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
+if [[ ( -n "${__option_ubnt_product_setup:-}" || -n "${__ubnt_product_command:-}" ) && -z "${__ubnt_selected_product:-}" ]]; then
   __eubnt_show_help
 fi
 
