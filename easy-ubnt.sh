@@ -777,7 +777,7 @@ function __eubnt_question_prompt() {
     default_answer="n"
   fi
   if [[ -n "${__quick_mode:-}" ]]; then
-    __eubnt_add_to_log "Quick mode, default answer selected"
+    __eubnt_add_to_log "Quick mode, default answer (${default_answer}) selected"
     yes_no="${default_answer}"
   fi
   while [[ ! "${yes_no:-}" =~ (^[Yy]([Ee]?|[Ee][Ss])?$)|(^[Nn][Oo]?$) ]]; do
@@ -1009,7 +1009,8 @@ function __eubnt_run_command() {
   local took_too_long=
   set +o errexit
   set +o errtrace
-  if [[ ( -n "${__verbose_output:-}" && "${2:-}" != "quiet" ) || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
+  if [[ -n "${__verbose_output:-}" || "${2:-}" = "foreground" || "${full_command[0]}" = "echo" ]]; then
+    __eubnt_echo_and_log "Running ${command_display}...\\n"
     "${full_command[@]}" | tee -a "${__script_log}" || true
     command_status=$?
   elif [[ "${2:-}" = "quiet" ]]; then
