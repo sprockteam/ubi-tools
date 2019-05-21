@@ -2647,62 +2647,66 @@ if [[ -z "${__accept_license:-}" ]]; then
   echo
 fi
 __eubnt_show_header "Checking system..."
-ubnt_dl_ip=""
-__eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
-ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
-if [[ -n "${__regex_ip_address:-}" && ! "${ubnt_dl_ip:-}" =~ ${__regex_ip_address} ]]; then
-  __eubnt_show_error "Unable to resolve ${__ubnt_dl:-} using the following nameservers: ${__nameservers:-}"
-else
-  __eubnt_show_success "DNS appears to be working!"
-fi
-show_disk_free_space="$([[ "${__disk_free_space_gb:-}" -lt 2 ]] && echo "${__disk_free_space_mb:-}MB" || echo "${__disk_free_space_gb:-}GB" )"
-__eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
-if [[ -n "${__recommended_disk_free_space_gb:-}" && -n "${__recommended_swap_total_gb:-}" ]]; then
-  if [[ "${__disk_free_space_gb:-}" -lt ${__recommended_disk_free_space_gb} ]]; then
-    __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
+if [[ -z "${__quick_skip_mode:-}" ]]; then
+  ubnt_dl_ip=""
+  __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
+  ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
+  if [[ -n "${__regex_ip_address:-}" && ! "${ubnt_dl_ip:-}" =~ ${__regex_ip_address} ]]; then
+    __eubnt_show_error "Unable to resolve ${__ubnt_dl:-} using the following nameservers: ${__nameservers:-}"
   else
-    if [[ "${__disk_free_space_gb:-}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
-      have_space_for_swap=true
+    __eubnt_show_success "DNS appears to be working!"
+  fi
+  show_disk_free_space="$([[ "${__disk_free_space_gb:-}" -lt 2 ]] && echo "${__disk_free_space_mb:-}MB" || echo "${__disk_free_space_gb:-}GB" )"
+  __eubnt_show_text "Disk free space is ${__colors_bold_text}${show_disk_free_space}${__colors_default}"
+  if [[ -n "${__recommended_disk_free_space_gb:-}" && -n "${__recommended_swap_total_gb:-}" ]]; then
+    if [[ "${__disk_free_space_gb:-}" -lt ${__recommended_disk_free_space_gb} ]]; then
+      __eubnt_show_warning "Disk free space is below ${__colors_bold_text}${__recommended_disk_free_space_gb}GB${__colors_default}"
+    else
+      if [[ "${__disk_free_space_gb:-}" -ge $((__recommended_disk_free_space_gb + __recommended_swap_total_gb)) ]]; then
+        have_space_for_swap=true
+      fi
     fi
   fi
-fi
-show_memory_total="$([[ "${__memory_total_gb:-}" -le 1 ]] && echo "${__memory_total_mb:-}MB" || echo "${__memory_total_gb:-}GB" )"
-__eubnt_show_text "Memory total size is ${__colors_bold_text}${show_memory_total}${__colors_default}"
-if [[ "${__memory_total_gb:-}" -lt ${__recommended_memory_total_gb} ]]; then
-  __eubnt_show_warning "Memory total size is below ${__colors_bold_text}${__recommended_memory_total_gb}GB${__colors_default}"
-fi
-show_swap_total="$([[ "${__swap_total_gb:-}" -le 1 ]] && echo "${__swap_total_mb:-}MB" || echo "${__swap_total_gb:-}GB" )"
-__eubnt_show_text "Swap total size is ${__colors_bold_text}${show_swap_total}${__colors_default}"
-if [[ "${__swap_total_mb:-}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
-  if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?"; then
-    __eubnt_setup_swap_file
+  show_memory_total="$([[ "${__memory_total_gb:-}" -le 1 ]] && echo "${__memory_total_mb:-}MB" || echo "${__memory_total_gb:-}GB" )"
+  __eubnt_show_text "Memory total size is ${__colors_bold_text}${show_memory_total}${__colors_default}"
+  if [[ "${__memory_total_gb:-}" -lt ${__recommended_memory_total_gb} ]]; then
+    __eubnt_show_warning "Memory total size is below ${__colors_bold_text}${__recommended_memory_total_gb}GB${__colors_default}"
   fi
-fi
-if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
-  __eubnt_initialize_unifi_controller_variables
-  if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
-    __eubnt_run_command "apt-mark hold unifi" "quiet" || true
-    if [[ -d "${__apt_sources_dir:-}" ]]; then
-      __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet" || true
+  show_swap_total="$([[ "${__swap_total_gb:-}" -le 1 ]] && echo "${__swap_total_mb:-}MB" || echo "${__swap_total_gb:-}GB" )"
+  __eubnt_show_text "Swap total size is ${__colors_bold_text}${show_swap_total}${__colors_default}"
+  if [[ "${__swap_total_mb:-}" -eq 0 && -n "${have_space_for_swap:-}" ]]; then
+    if __eubnt_question_prompt "Do you want to setup a ${__recommended_swap_total_gb}GB swap file?"; then
+      __eubnt_setup_swap_file
     fi
-    __eubnt_show_notice "UniFi Network Controller ${__unifi_controller_package_version} is installed"
   fi
+  if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+    __eubnt_initialize_unifi_controller_variables
+    if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+      __eubnt_run_command "apt-mark hold unifi" "quiet" || true
+      if [[ -d "${__apt_sources_dir:-}" ]]; then
+        __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet" || true
+      fi
+      __eubnt_show_notice "UniFi Network Controller ${__unifi_controller_package_version} is installed"
+      if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]] \
+         && ! __eubnt_version_compare "${__unifi_controller_data_version}" "eq" "${__unifi_controller_package_version}"; then
+        __eubnt_show_warning "UniFi Network Controller ${__unifi_controller_data_version} data found!"
+      fi
+    fi
+  fi
+  echo
+  __eubnt_run_command "apt-get update" || true
+  __eubnt_install_dependencies
+  echo
 fi
-echo
-__eubnt_run_command "apt-get update" || true
-__eubnt_install_dependencies
-echo
 if [[ -n "${__is_cloud_key:-}" ]]; then
   __eubnt_show_warning "This script isn't fully tested with Cloud Key!\\n"
   __eubnt_question_prompt "" "exit"
 else
-  if [[ -n "${__quick_mode:-}" ]]; then
-    __eubnt_show_timer
-  else
+  if [[ -z "${__quick_mode:-}" ]]; then
     __eubnt_question_prompt "" "exit"
   fi
 fi
-if [[ -z "${__is_cloud_key:-}" ]]; then
+if [[ -z "${__is_cloud_key:-}" && -z "${__quick_skip_mode:-}" ]]; then
   __eubnt_common_fixes
   if ! __eubnt_setup_sources; then
     __eubnt_show_error "Unable to setup package sources"
