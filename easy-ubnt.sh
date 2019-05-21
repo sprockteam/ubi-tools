@@ -1424,6 +1424,7 @@ function __eubnt_unifi_controller_get_port() {
 # This will initialize all variables related to UniFi Network Controller functions
 # TODO: Make more of these dynamic
 # $1: If set to "skip_ports" then don't initialize port variables
+# $2: If set to "skip_get_versions" then don't try to get latest versions
 function __eubnt_initialize_unifi_controller_variables() {
   __unifi_controller_is_installed=
   __unifi_controller_is_running=
@@ -1438,11 +1439,13 @@ function __eubnt_initialize_unifi_controller_variables() {
   __unifi_controller_mongodb_ace_stat=""
   __unifi_controller_data_version=""
   __unifi_controller_package_version=""
-  if [[ ! "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
-    __unifi_available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
-  fi
-  if [[ ! "${__unifi_available_version_lts:-}" =~ ${__regex_version_full} ]]; then
-    __unifi_available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
+  if [[ "${2:-}" != "skip_get_versions" ]]; then
+    if [[ ! "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
+      __unifi_available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
+    fi
+    if [[ ! "${__unifi_available_version_lts:-}" =~ ${__regex_version_full} ]]; then
+      __unifi_available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
+    fi
   fi
   if __eubnt_is_package_installed "unifi"; then
     __unifi_controller_package_version=$(dpkg --list "unifi" | awk '/unifi/{print $3}' | sed 's/-.*//')
