@@ -1519,25 +1519,79 @@ function __eubnt_initialize_unifi_controller_variables() {
 # $1: Optionally set this to "continuous" to keep checking until it's running
 function __eubnt_is_unifi_controller_running() {
   local counter=0
+  local log_start_line=0
+  __eubnt_initialize_unifi_controller_variables
+  if [[ -f "${__unifi_controller_log_dir:-}/server.log" ]]; then
+    log_start_line="$(grep --line-number ".*<launcher>.*INFO.*system.*is started.*" "${__unifi_controller_log_dir}/server.log" | tail -1 | cut --delimiter ':' --fields 1)"
+  fi
   while true; do
-    __eubnt_initialize_unifi_controller_variables
-    if ! __eubnt_is_package_installed "unifi"; then
-      return 1
-    fi
-    if [[ -n "${__unifi_controller_is_running:-}" && -n "${__unifi_controller_has_data:-}" ]]; then
-      if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_inform:-8080}" "tcp" "java" "${1:-}"; then
-        if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_admin:-8443}" "tcp" "java" "${1:-}"; then
-          return 0
-        else
-          if [[ "${1:-}" != "continuous" || "${counter:-}" -gt 600 ]]; then
-            return 1
+    if __eubnt_is_package_installed "unifi"; then
+      if [[ -n "${__unifi_controller_is_running:-}" ]]; then
+        if ! __eubnt_version_compare "${__unifi_controller_data_version:-}" "eq" "${__unifi_controller_package_version:-}"; then
+          if __eubnt_check_for_migration_unifi_controller "${log_start_line:-}"; then
+            if __eubnt_check_for_error_unifi_controller "${log_start_line:-}"; then
+              return 1
+            fi
+            sleep 1
+            continue
+          fi
+        elif [[ -n "${__unifi_controller_has_data:-}" ]]; then
+          if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_inform:-8080}" "tcp" "java" "${1:-}"; then
+            if __eubnt_is_port_in_use "${__unifi_controller_port_tcp_admin:-8443}" "tcp" "java" "${1:-}"; then
+              if ! __eubnt_check_for_error_unifi_controller "${log_start_line:-}"; then
+                return 0
+              else
+                if [[ "${1:-}" != "continuous" || "${counter:-}" -gt 600 ]]; then
+                  break
+                fi
+              fi
+            fi
           fi
         fi
       fi
     fi
     sleep 1
+    __eubnt_initialize_unifi_controller_variables
     (( counter++ ))
   done
+  return 1
+}
+
+# Check if any launch errors exist in the server log
+# $1: Opitionally specify a line to start the check in the log file
+function __eubnt_check_for_error_unifi_controller() {
+  if [[ -d "${__unifi_controller_log_dir:-}" ]]; then
+    local server_log="${__unifi_controller_log_dir}/server.log"
+    if [[ -n "${server_log:-}" && -f "${server_log:-}" ]]; then
+      #shellcheck disable=SC2086
+      local launcher_error="$(tail --lines=+${1:-0} "${server_log}" | grep ".*<launcher>.*ERROR.*" | tail -1)"
+      if [[ -n "${launcher_error:-}" ]]; then
+        __eubnt_show_warning "Errors detected in UniFi Network Controller server log!"
+        __eubnt_show_warning "${launcher_error}\\n" "none"
+        sleep 3
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+# Check if the Controller has started a migration
+# $1: Opitionally specify a line to start the check in the log file
+function __eubnt_check_for_migration_unifi_controller() {
+  if [[ -d "${__unifi_controller_log_dir:-}" ]]; then
+    local server_log="${__unifi_controller_log_dir}/server.log"
+    if [[ -n "${server_log:-}" && -f "${server_log:-}" ]]; then
+      #shellcheck disable=SC2086
+      local migation_started="$(tail --lines=+${1:-0} "${server_log}" | grep ".*<launcher>.*migrating.*")"
+      if [[ -n "${migation_started:-}" ]]; then
+        __eubnt_add_to_log "Migration of data occurring..."
+        __eubnt_add_to_log "${migation_started}"
+        return 0
+      fi
+    fi
+  fi
+  return 1
 }
 
 # Various evaluations to use with MongoDB related to the UniFi Network Controller
