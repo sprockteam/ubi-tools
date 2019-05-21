@@ -1974,12 +1974,17 @@ function __eubnt_install_java() {
   fi
   if __eubnt_install_package "ca-certificates-java" "${target_release:-}"; then
     if __eubnt_install_package "openjdk-8-jre-headless" "${target_release:-}"; then
-      java_alternative="$(update-java-alternatives --list | awk '/^java-1.8.*-openjdk/{print $1}')"
-      if __eubnt_run_command "update-java-alternatives --set ${java_alternative:-}" "quiet"; then
-        if __eubnt_install_package "jsvc"; then
-          if __eubnt_install_package "libcommons-daemon-java"; then
-            __eubnt_install_package "haveged" || true
-            return 0
+      update_java_alternative="$(update-java-alternatives --list | awk '/^java-1.8.*-openjdk/{print $1}')"
+      update_alternative="$(update-alternatives --list java | awk '/java-8-openjdk/{print $1}')"
+      if __eubnt_run_command "update-java-alternatives --set ${update_java_alternative:-}" "quiet"; then
+        if __eubnt_run_command "update-alternatives --set ${update_alternative:-}" "quiet"; then
+          __eubnt_run_command "rm /etc/ssl/certs/java/cacerts" "quiet" || true
+          __eubnt_run_command "update-ca-certificates --fresh" "quiet" || true
+          if __eubnt_install_package "jsvc"; then
+            if __eubnt_install_package "libcommons-daemon-java"; then
+              __eubnt_install_package "haveged" || true
+              return 0
+            fi
           fi
         fi
       fi
