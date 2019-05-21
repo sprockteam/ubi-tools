@@ -853,6 +853,9 @@ function __eubnt_is_process() {
 # $4: If set to "continuous" then run netstat in continuous mode until listening port is found
 function __eubnt_is_port_in_use() {
   if [[ "${1:-}" =~ ${__regex_port_number} ]]; then
+    if ! __eubnt_is_command "netstat"; then
+      __eubnt_install_package "net-tools"
+    fi
     local port_to_check="${1}"
     local protocol_to_check="tcp"
     local process_to_check=""
@@ -2355,6 +2358,7 @@ function __eubnt_setup_ufw() {
     return 1
   fi
   if ! __eubnt_is_package_installed "ufw"; then
+    echo
     if __eubnt_question_prompt "Do you want to install UFW?"; then
       __eubnt_install_package "ufw"
     else
