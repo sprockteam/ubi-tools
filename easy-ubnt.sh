@@ -487,20 +487,14 @@ function __eubnt_cleanup_before_exit() {
   fi
   echo -e "${__colors_default:-}"
   if [[ -d "${__sshd_dir:-}" ]]; then
-    local ssh_backups_to_delete="$(find "${__sshd_dir}" -maxdepth 1 -type f -name "sshd_config.bak*" -print0 2>/dev/null | xargs -0 --exit ls -t | awk 'NR>2')"
-    for backup_file in "${!ssh_backups_to_delete[@]}"; do
-      if [[ -f "${ssh_backups_to_delete[$backup_file]:-}" ]]; then
-        rm --force "${ssh_backups_to_delete[$backup_file]}" 2>/dev/null || true
-      fi
-    done
+    while IFS=$'\n' read -r ssh_backup_to_delete; do
+      rm --force "${ssh_backup_to_delete}";
+    done < <(find "${__sshd_dir}" -maxdepth 1 -type f -name "sshd_config.bak*" | sort --reverse | awk 'NR>2')
   fi
   if [[ -d "${__script_log_dir:-}" ]]; then
-    local log_files_to_delete="$(find "${__script_log_dir}" -maxdepth 1 -type f -print0 | xargs -0 --exit ls -t | awk 'NR>10')"
-    for log_file in "${!log_files_to_delete[@]}"; do
-      if [[ -f "${log_files_to_delete[$log_file]:-}" ]]; then
-        rm --force "${log_files_to_delete[$log_file]}" 2>/dev/null || true
-      fi
-    done
+    while IFS=$'\n' read -r log_file_to_delete; do
+      rm --force "${log_file_to_delete}";
+    done < <(find "${__script_log_dir}" -maxdepth 1 -type f | sort --reverse | awk 'NR>10')
   fi
   if [[ -d "${__script_temp_dir:-}" ]]; then
     rm --recursive --force "${__script_temp_dir}" 2>/dev/null || true
