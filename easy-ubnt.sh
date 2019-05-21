@@ -2729,41 +2729,46 @@ if [[ -z "${__is_cloud_key:-}" && -z "${__quick_skip_mode:-}" ]]; then
     fi
   fi
 fi
-if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
-  remove_source_list=true
-  if ! __eubnt_install_unifi_controller; then
-    if [[ $? -eq 1 ]]; then
+if [[ "${__option_ubnt_product_setup:-}" != "skip" ]]; then
+  if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
+    remove_source_list=true
+    return_code=0
+    __eubnt_install_unifi_controller || return_code=$?
+    if [[ "${return_code:-0}" -eq 1 ]]; then
       __eubnt_show_error "Unable to install UniFi Network Controller!"
-    elif [[ $? -eq 2 ]]; then
+      __eubnt_question_prompt "" "exit" "n"
+    elif [[ "${return_code:-0}" -eq 2 ]]; then
       __eubnt_show_warning "UniFi Network Controller installation cancelled!"
       echo
+    elif [[ "${return_code:-0}" -eq 3 ]]; then
+      __eubnt_show_error "UniFi Network Controller failed to migrate data!"
+      __eubnt_question_prompt "" "exit" "n"
     fi
-  fi
-  remove_source_list=true
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
-    available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
-    if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${available_version_stable}"; then
-      if __eubnt_question_prompt "Add stable source list for UniFi Network Controller to apt-get?"; then
-        if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
-          __eubnt_add_key "C0A52C50" || true
-          __eubnt_run_command "apt-get update" "quiet" || true
+    __eubnt_initialize_unifi_controller_variables "skip_ports"
+    echo
+    if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
+      if __eubnt_version_compare "${__unifi_controller_package_version}" "ge" "${__unifi_available_version_stable:-}"; then
+        if __eubnt_question_prompt "Add stable source list for UniFi Network to apt-get?"; then
+            remove_source_list=
+            __eubnt_add_key "C0A52C50" || true
+          if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian stable ubiquiti" "100-ubnt-unifi.list" "unifi.*debian stable ubiquiti"; then
+            __eubnt_run_command "apt-get update" "quiet" || true
+          fi
+        fi
+      elif __eubnt_version_compare "${__unifi_controller_package_version}" "eq" "${__unifi_available_version_lts:-}"; then
+        if __eubnt_question_prompt "Add 5.6 source list for UniFi Network to apt-get?"; then
           remove_source_list=
+          __eubnt_add_key "C0A52C50" || true
+          if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian unifi-5.6 ubiquiti" "100-ubnt-unifi.list" "unifi.*debian unifi-5.6 ubiquiti"; then
+            __eubnt_run_command "apt-get update" "quiet" || true
+          fi
         fi
       fi
-    elif __eubnt_version_compare "${__unifi_controller_package_version}" "eq" "${available_version_lts}"; then
-      if __eubnt_question_prompt "Add 5.6 source list for UniFi Network Controller to apt-get?"; then
-        if __eubnt_add_source "http://www.ui.com/downloads/unifi/debian unifi-5.6 ubiquiti" "100-ubnt-unifi.list" "unifi.*debian unifi-5.6 ubiquiti"; then
-          __eubnt_add_key "C0A52C50" || true
-          __eubnt_run_command "apt-get update" "quiet" || true
-          remove_source_list=
-        fi
-      fi
     fi
-  fi
-  if [[ -n "${remove_source_list:-}" ]]; then
-   if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
-     __eubnt_run_command "apt-get update" "quiet" || true
+    if [[ -n "${remove_source_list:-}" && -f "${__apt_sources_dir}/100-ubnt-unifi.list" ]]; then
+     if __eubnt_run_command "mv --force ${__apt_sources_dir}/100-ubnt-unifi.list ${__apt_sources_dir}/100-ubnt-unifi.list.bak" "quiet"; then
+       __eubnt_run_command "apt-get update" "quiet" || true
+      fi
     fi
   fi
 fi
