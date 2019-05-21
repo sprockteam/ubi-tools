@@ -1282,7 +1282,7 @@ function __eubnt_ubnt_get_product() {
         fi
       fi
       if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
-        local update_url="${__ubnt_update_api}${product}${product_channel}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
+        local update_url="${__ubnt_update_api}${product}${product_platform}${product_channel}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
         declare -a wget_update=(wget --quiet --output-document - "${update_url}")
         # shellcheck disable=SC2068
         found_version="$(${wget_update[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
@@ -1295,7 +1295,7 @@ function __eubnt_ubnt_get_product() {
           if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
             latest_download_url="${check_download_url}"
           fi
-          if [[ ! "${2}" =~ ${__regex_version_full} ]]; then
+          if [[ ! "${2}" =~ ${__regex_version_full} && "${found_version:-}" =~ ${__regex_version_full} ]]; then
             IFS='.' read -r -a version_array <<< "${found_version}"
             local check_patch=$(( version_array[2]+1 ))
             local max_patch=$(( version_array[2]+10 ))
@@ -1322,10 +1322,10 @@ function __eubnt_ubnt_get_product() {
         fi
       fi
     fi
-    if [[ "${download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    if [[ "${download_url:-}" =~ ${__regex_url_ubnt_deb} && "${3:-}" = "url" ]]; then
       echo -n "${download_url}"
       return 0
-    elif [[ "${found_version:-}" =~ ${__regex_version_full} ]]; then
+    elif [[ "${found_version:-}" =~ ${__regex_version_full} && "${3:-}" != "url" ]]; then
       echo -n "${found_version}"
       return 0
     fi
