@@ -1618,45 +1618,51 @@ function __eubnt_unifi_controller_mongodb_eval() {
 # Show install/reinstall/update options for UniFi Network Controller
 function __eubnt_install_unifi_controller()
 {
-  __eubnt_show_header "Installing UniFi Network Controller...\\n"
-  local selected_version=""
-  local available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
-  local available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
-  if [[ -n "${__ubnt_product_version:-}" ]]; then
-    local available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__ubnt_product_version}" | tail --lines=1)"
-  fi
-  declare -a versions_to_install=()
-  declare -a versions_to_select=()
+  __eubnt_show_header "Installing UniFi Network Controller..."
   __eubnt_initialize_unifi_controller_variables
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    versions_to_select+=("${__unifi_controller_package_version}" "   Reinstall this version")
+  local selected_version=""
+  local available_version_selected=""
+  local version_to_install=""
+  declare -a versions_to_select=()
+  if [[ -n "${__option_ubnt_product_setup:-}" ]]; then
+    if [[ ! "${__option_ubnt_product_setup}" =~ ${__regex_version_full} ]]; then
+      __eubnt_show_text "Checking for latest ${__option_ubnt_product_setup} version..."
+    fi
+    available_version_selected="$(__eubnt_ubnt_get_product "unifi-controller" "${__option_ubnt_product_setup}" | tail --lines=1)"
   fi
-  if [[ -n "${__ubnt_product_version:-}" && "${available_version_selected:-}" =~ ${__regex_version_full} ]]; then
+  if [[ "${available_version_selected:-}" =~ ${__regex_version_full} ]]; then
     selected_version="${available_version_selected}"
-  elif [[ -n "${__quick_mode:-}" && -z "${__unifi_controller_package_version:-}" && -n "${available_version_stable:-}" ]]; then
-    selected_version="${available_version_stable}"
+  elif [[ -n "${__quick_mode:-}" && -z "${__unifi_controller_package_version:-}" && "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
+    selected_version="${__unifi_available_version_stable}"
   elif [[ -n "${__quick_mode:-}" && -n "${__unifi_controller_package_version:-}" ]]; then
     return 3
   else
+    if [[ -n "${__unifi_controller_package_version:-}" ]]; then
+      versions_to_select+=("${__unifi_controller_package_version}" "   Reinstall this version")
+    fi
     local add_lts_version=
     local add_stable_version=
-    if [[ "${available_version_lts:-}" =~ ${__regex_version_full} ]]; then
-      if [[ -z "${__unifi_controller_package_version:-}" ]] || __eubnt_version_compare "${available_version_lts}" "gt" "${__unifi_controller_package_version:-}"; then
+    if [[ -z "${__unifi_controller_package_version:-}" ]] || __eubnt_version_compare "5.6.99" "gt" "${__unifi_controller_package_version:-}"; then
+      if __eubnt_version_compare "${__unifi_available_version_lts:-}" "gt" "${__unifi_controller_package_version:-}"; then
         add_lts_version=true
       fi
     fi
-    if [[ "${available_version_stable:-}" =~ ${__regex_version_full} ]]; then
-      if [[ -z "${__unifi_controller_package_version:-}" ]] || ! __eubnt_version_compare "${available_version_stable}" "eq" "${__unifi_controller_package_version:-}"; then
+    if [[ "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
+      if [[ -z "${__unifi_controller_package_version:-}" ]] || ! __eubnt_version_compare "${__unifi_available_version_stable}" "eq" "${__unifi_controller_package_version:-}"; then
         if [[ -z "${__unifi_controller_limited_to_lts:-}" ]]; then
           add_stable_version=true
         fi
       fi
     fi
     if [[ -n "${add_stable_version:-}" ]]; then
-      versions_to_select+=("${available_version_stable}" "   Latest public stable release")
+      versions_to_select+=("${__unifi_available_version_stable}" "   Latest public stable release")
     fi
     if [[ -n "${add_lts_version:-}" ]]; then
-      versions_to_select+=("${available_version_lts}" "   Latest public 5.6 release (Gen1 UAP-AC)")
+      versions_to_select+=("${__unifi_available_version_lts}" "   Latest public 5.6 release (Gen1 UAP-AC)")
+    fi
+    if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} && "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]] \
+       && ! __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${__unifi_controller_data_version:-}"; then
+      versions_to_select+=("Revert" "   Revert to data version (${__unifi_controller_data_version})")
     fi
     versions_to_select+=("Other" "   Enter a version number" "Beta" "   Enter a beta or unstable URL")
     selected_version="$(__eubnt_show_whiptail "menu" "UniFi Network Controller" "versions_to_select")"
@@ -1676,6 +1682,9 @@ function __eubnt_install_unifi_controller()
           continue
         else
           if [[ "${what_other_version:-}" =~ ${__regex_version_full} || "${what_other_version:-}" =~ ${__regex_version_major_minor} ]]; then
+            if [[ "${what_other_version:-}" =~ ${__regex_version_major_minor} ]]; then
+              __eubnt_show_text "Checking for latest ${what_other_version} version..."
+            fi
             selected_version="$(__eubnt_ubnt_get_product "unifi-controller" "${what_other_version}" | tail --lines=1 || true)"
             if [[ ! "${selected_version:-}" =~ ${__regex_version_full} ]]; then
               echo
@@ -1692,7 +1701,7 @@ function __eubnt_install_unifi_controller()
         fi
       done
     fi
-    if [[ "${selected_version:-}" = "Beta" ]] || __eubnt_version_compare "${selected_version:-}" "gt" "${available_version_stable:-}"; then
+    if [[ "${selected_version:-}" = "Beta" ]] || __eubnt_version_compare "${selected_version:-}" "gt" "${__unifi_available_version_stable:-}"; then
       local what_ubnt_url=""
       while [[ ! "${selected_version}" =~ ${__regex_url_ubnt_deb} ]]; do
         __eubnt_show_header "Installing UniFi Network Controller...\\n"
@@ -1714,35 +1723,37 @@ function __eubnt_install_unifi_controller()
       done
     fi
   fi
-  if [[ -n "${__unifi_controller_package_version:-}" ]]; then
-    if [[ "${selected_version:-}" =~ ${__regex_version_full} ]] && __eubnt_version_compare "${selected_version}" "gt" "${__unifi_controller_package_version}"; then
-      local version_upgrade="$(__eubnt_ubnt_get_product "unifi-controller" "$(echo "${__unifi_controller_package_version}" | tail --lines=1 | cut --fields 1-2 --delimiter '.')")"
-      if __eubnt_version_compare "${version_upgrade}" "gt" "${__unifi_controller_package_version}"; then
-        versions_to_install+=("${version_upgrade}|$(__eubnt_ubnt_get_product "unifi-controller" "${version_upgrade}" "url" | tail --lines=1)")
-      fi
-    fi
+  if [[ "${selected_version:-}" = "Revert" ]]; then
+    selected_version="${__unifi_controller_data_version}"
   fi
   if [[ "${selected_version:-}" =~ ${__regex_url_ubnt_deb} ]]; then
-    versions_to_install+=("$(__eubnt_extract_version_from_url "${selected_version}")|${selected_version}")
+    version_to_install="$(__eubnt_extract_version_from_url "${selected_version}")|${selected_version}"
   elif [[ "${selected_version:-}" =~ ${__regex_version_full} ]]; then
-    versions_to_install+=("${selected_version}|$(__eubnt_ubnt_get_product "unifi-controller" "${selected_version}" "url" | tail --lines=1)")
+    version_to_install="${selected_version}|$(__eubnt_ubnt_get_product "unifi-controller" "${selected_version}" "url" | tail --lines=1)"
   fi
-  if [[ ${#versions_to_install[@]} -gt 0 ]]; then
-    versions_to_install=($(printf "%s\\n" "${versions_to_install[@]}" | sort --unique --version-sort))
-    for version in "${!versions_to_install[@]}"; do
-      if ! __eubnt_install_unifi_controller_version "${versions_to_install[$version]}"; then
-        return $?
-      else
-        return 0
+  local return_code=0
+  while [[ -n "${version_to_install:-}" ]]; do
+    return_code=0
+    __eubnt_install_unifi_controller_version "${version_to_install}" || return_code=$?
+    if [[ "${return_code:-0}" -eq 3 ]]; then
+      __eubnt_initialize_unifi_controller_variables
+      if [[ "${__unifi_controller_data_version:-}" =~ ${__regex_version_full} ]]; then
+        if __eubnt_question_prompt "Do you want to revert to ${__unifi_controller_data_version}?"; then
+          version_to_install="${__unifi_controller_data_version}|$(__eubnt_ubnt_get_product "unifi-controller" "${__unifi_controller_data_version}" "url" | tail --lines=1)"
+          continue
+        else
+          return 3
+        fi
       fi
-    done
-  fi
+    else
+      return "${return_code:-0}"
+    fi
+  done
   return 1
 }
 
 # Installs the UniFi Network Controller based on a version number and download URL
-# $1: The full version number to install and URL, example: "5.6.40|https://dl.ubnt.com/unifi/5.6.40/unifi_sysvinit_all.deb"
-# TODO: Try to recover if install fails
+# $1: The full version number to install and URL, example: "5.6.42|https://dl.ubnt.com/unifi/5.6.42/unifi_sysvinit_all.deb"
 function __eubnt_install_unifi_controller_version()
 {
   if [[ -z "${1:-}" ]]; then
@@ -1765,7 +1776,11 @@ function __eubnt_install_unifi_controller_version()
   if __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${install_this_version:-}"; then
     __eubnt_show_notice "UniFi Network Controller ${install_this_version} is already installed...\\n"
     __eubnt_question_prompt "Are you sure you want to reinstall?" "return" "n" || return 2
-  elif __eubnt_version_compare "${__unifi_controller_package_version:-}" "gt" "${install_this_version:-}"; then
+  elif ! __eubnt_version_compare "${__unifi_controller_package_version:-}" "eq" "${__unifi_controller_data_version:-}" \
+       && __eubnt_version_compare "${__unifi_controller_data_version:-}" "eq" "${install_this_version:-}"; then
+    echo
+    __eubnt_run_command "dpkg --remove --force-all unifi" || return 1
+  elif __eubnt_version_compare "${__unifi_controller_data_version:-}" "gt" "${install_this_version:-}"; then
     __eubnt_show_warning "UniFi Network Controller ${install_this_version} is a previous version...\\n"
     if __eubnt_question_prompt "Do you want to purge all data and downgrade?" "return" "n"; then
       echo
@@ -1785,9 +1800,14 @@ function __eubnt_install_unifi_controller_version()
   fi
   __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}...\\n"
   if [[ -f "/lib/systemd/system/unifi.service" ]]; then
-    if __eubnt_run_command "service unifi restart"; then
-      __eubnt_show_text "Waiting for UniFi Network Controller to finish restarting...\\n"
-      __eubnt_is_unifi_controller_running "continuous"
+    if __eubnt_question_prompt "Do you want to restart the service first (recommended)?"; then
+      if __eubnt_run_command "service unifi restart"; then
+        __eubnt_show_text "Waiting for UniFi Network Controller to finish restarting...\\n"
+        sleep 5
+        if ! __eubnt_is_unifi_controller_running "continuous"; then
+          __eubnt_question_prompt || return 2
+        fi
+      fi
     fi
   fi
   __eubnt_show_header "Installing UniFi Network Controller ${install_this_version:-}...\\n"
@@ -1801,8 +1821,11 @@ function __eubnt_install_unifi_controller_version()
             echo "unifi unifi/has_backup boolean true" | debconf-set-selections
             __eubnt_show_text "Installing $(basename "${unifi_deb_file}")"
             if __eubnt_run_command "dpkg --install --force-all ${unifi_deb_file}"; then
-              __eubnt_show_success "Installation complete! Waiting for UniFi Network Controller to finish loading...\\n"
-              if __eubnt_is_unifi_controller_running "continuous"; then
+              __eubnt_show_success "Installation complete! Waiting for the service to finish loading..."
+              sleep 5
+              if ! __eubnt_is_unifi_controller_running "continuous"; then
+                return 3
+              else
                 return 0
               fi
             fi
