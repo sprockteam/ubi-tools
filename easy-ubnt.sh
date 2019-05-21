@@ -2107,7 +2107,7 @@ function __eubnt_setup_ssh_server() {
 
 # Based on solution by @Frankedinven (https://community.ubnt.com/t5/UniFi-Wireless/Lets-Encrypt-on-Hosted-Controller/m-p/2463220/highlight/true#M318272)
 function __eubnt_setup_certbot() {
-  if [[ -n "${__quick_mode:-}" && -z "${__hostname_fqdn:-}" ]]; then
+  if [[ ( -n "${__quick_mode:-}" && -z "${__option_fqdn:-}" ) || "${__option_lets_encrypt_setup:-}" = "skip" ]]; then
     return 1
   fi
   if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
@@ -2137,6 +2137,7 @@ function __eubnt_setup_certbot() {
     fi
   fi
   if ! __eubnt_is_command "certbot"; then
+    echo
     if [[ -n "${__is_ubuntu:-}" ]]; then
       if ! __eubnt_setup_sources "certbot"; then
         return 1
@@ -2161,7 +2162,7 @@ function __eubnt_setup_certbot() {
     sleep 3
     return 1
   fi
-  domain_name="${__hostname_fqdn:-}"
+  domain_name="${__option_fqdn:-}"
   if [[ -z "${domain_name:-}" ]]; then
     __eubnt_run_command "hostname --fqdn" "" "domain_name"
   fi
@@ -2337,15 +2338,16 @@ function __eubnt_allow_hosts_ufw_app() {
 # Adds an app profile that includes all UniFi Network ports to allow for easy rule management in UFW
 # Checks if ports appear to be open/accessible from the Internet
 function __eubnt_setup_ufw() {
-  if [[ -n "${__ufw_skip:-}" ]]; then
+  if [[ "${__option_firewall_setup:-}" = "skip" ]]; then
     return 1
-  elif [[ -n "${__ufw_disable:-}" ]]; then
+  fi
+  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
+  if [[ "${__option_firewall_setup:-}" = "off" ]]; then
     if __eubnt_is_command "ufw"; then
       __eubnt_run_command "ufw --force disable" || true
     fi
     return 1
   fi
-  __eubnt_show_header "Setting up UFW (Uncomplicated Firewall)..."
   if ! __eubnt_is_package_installed "ufw"; then
     if __eubnt_question_prompt "Do you want to install UFW?"; then
       __eubnt_install_package "ufw"
@@ -2355,8 +2357,8 @@ function __eubnt_setup_ufw() {
   fi
   declare -a apps_to_allow=()
   if __eubnt_is_process "sshd" && [[ -f "${__sshd_config:-}" ]]; then
-    local ssh_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
-    sed -i "s|^ports=.*|ports=${ssh_port}/tcp|" "/etc/ufw/applications.d/openssh-server"
+    __sshd_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+    sed -i "s|^ports=.*|ports=${__sshd_port:-22}/tcp|" "/etc/ufw/applications.d/openssh-server"
     apps_to_allow+=("OpenSSH")
   fi
   if [[ "${__ubnt_selected_product:-}" = "unifi-controller" ]]; then
@@ -2497,7 +2499,7 @@ function __eubnt_invoke_cli() {
     local command_type="$(type -t "__eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command}")"
     if [[ "${command_type:-}" = "function" ]]; then
       # shellcheck disable=SC2086,SC2086
-      __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__ubnt_product_version:-}" || true
+      __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__option_ubnt_product_setup:-}" || true
       exit
     else
       __eubnt_show_warning "Unknown command ${__ubnt_product_command}"
