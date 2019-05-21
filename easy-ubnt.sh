@@ -1438,6 +1438,12 @@ function __eubnt_initialize_unifi_controller_variables() {
   __unifi_controller_mongodb_ace_stat=""
   __unifi_controller_data_version=""
   __unifi_controller_package_version=""
+  if [[ ! "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
+    __unifi_available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
+  fi
+  if [[ ! "${__unifi_available_version_lts:-}" =~ ${__regex_version_full} ]]; then
+    __unifi_available_version_lts="$(__eubnt_ubnt_get_product "unifi-controller" "5.6" | tail --lines=1)"
+  fi
   if __eubnt_is_package_installed "unifi"; then
     __unifi_controller_package_version=$(dpkg --list "unifi" | awk '/unifi/{print $3}' | sed 's/-.*//')
     __unifi_controller_service="/lib/systemd/system/unifi.service"
