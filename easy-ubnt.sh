@@ -108,6 +108,7 @@ function __eubnt_show_help() {
               'get-installed-version' - Show currently installed package version
               'get-available-version' - Show latest available version number
               'get-available-download' - Show latest available download URL
+              'archive-alerts' - Archive controller alerts for all sites
   -d [arg]    Specify the domain name (FQDN) to use in the script
   -f [arg]    Specify an option for the firewall setup
               If not specified, the firewall (UFW) will be enabled
@@ -1602,7 +1603,7 @@ function __eubnt_check_for_migration_unifi_controller() {
 #     "lts-devices" will check if devices are in the database that are only supported by LTS
 function __eubnt_unifi_controller_mongodb_eval() {
   if [[ -n "${1:-}" ]] && __eubnt_is_command "mongo"; then
-    __eubnt_initialize_unifi_controller_variables
+    __eubnt_initialize_unifi_controller_variables "" "skip_get_versions"
     case "${1}" in
       "lts-devices")
         if [[ -n "${__unifi_controller_limited_to_lts:-}" ]]; then
@@ -1610,7 +1611,12 @@ function __eubnt_unifi_controller_mongodb_eval() {
         fi;;
       "reset-password")
         # shellcheck disable=SC2016,SC2086
-        if mongo --quiet --host ${__unifi_controller_mongodb_host:-} --port ${__unifi_controller_mongodb_port:-} --eval 'db.admin.update( { "name" : "alkadgalkga" }, { $set : { "x_shadow" : "$6$9Ter1EZ9$lSt6/tkoPguHqsDK0mXmUsZ1WE2qCM4m9AQ.x9/eVNJxws.hAxt2Pe8oA9TFB7LPBgzaHBcAfKFoLpRQlpBiX1" } } )' | grep --quiet "nModified\" : 1"; then
+        if mongo --quiet --host ${__unifi_controller_mongodb_host:-} --port ${__unifi_controller_mongodb_port:-} ${__unifi_controller_mongodb_ace:-} --eval 'db.admin.update({"name" : "admin"}, {$set : {"x_shadow" : "$6$9Ter1EZ9$lSt6/tkoPguHqsDK0mXmUsZ1WE2qCM4m9AQ.x9/eVNJxws.hAxt2Pe8oA9TFB7LPBgzaHBcAfKFoLpRQlpBiX1"}})' | grep --quiet "nModified"; then
+          return 0
+        fi;;
+      "archive-alerts")
+        # shellcheck disable=SC2016,SC2086
+        if mongo --quiet --host ${__unifi_controller_mongodb_host:-} --port ${__unifi_controller_mongodb_port:-} ${__unifi_controller_mongodb_ace:-} --eval 'db.alarm.update({"archived": false}, {$set: {"archived": true}}, {multi: true})' | grep --quiet "nModified"; then
           return 0
         fi;;
     esac
@@ -2533,9 +2539,18 @@ function __eubnt_cli_unifi_controller_get_available_download() {
 
 # A wrapper function to get the installed UniFi Network Controller version
 function __eubnt_cli_unifi_controller_get_installed_version() {
-  __eubnt_initialize_unifi_controller_variables
+  __eubnt_initialize_unifi_controller_variables "skip_ports" "skip_get_versions"
   if [[ "${__unifi_controller_package_version:-}" =~ ${__regex_version_full} ]]; then
     echo -n "${__unifi_controller_package_version}"
+    return 0
+  fi
+  return 1
+}
+
+# A wrapper function to archive alerts in the UniFi Network Controller database
+function __eubnt_cli_unifi_controller_archive_alerts() {
+  if __eubnt_unifi_controller_mongodb_eval "archive-alerts"; then
+    echo -n "Archived all alerts"
     return 0
   fi
   return 1

@@ -46,6 +46,7 @@ wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
               'get-installed-version' - Show currently installed package version
               'get-available-version' - Show latest available version number
               'get-available-download' - Show latest available download URL
+              'archive-alerts' - Archive controller alerts for all sites
   -d [arg]    Specify the domain name (FQDN) to use in the script
   -f [arg]    Specify an option for the firewall setup
               If not specified, the firewall (UFW) will be enabled
