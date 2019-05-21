@@ -340,7 +340,7 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:f:i:l:p:q:s:ahtvx" options; do
+while getopts ":c:d:f:i:l:p:s:ahqtvx" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -377,6 +377,7 @@ while getopts ":c:d:f:i:l:p:q:s:ahtvx" options; do
         __eubnt_add_to_log "Command line option: specified UBNT product version ${__option_ubnt_product_setup}"
       elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
         __option_ubnt_product_setup="skip"
+        __eubnt_add_to_log "Command line option: skip UBNT product setup"
       else
         __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
@@ -407,11 +408,7 @@ while getopts ":c:d:f:i:l:p:q:s:ahtvx" options; do
       fi;;
     q)
       __quick_mode=true
-      __eubnt_add_to_log "Command line option: enabled quick mode"
-      if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
-        __quick_skip_mode=true
-        __eubnt_add_to_log "Command line option: skip system checks and fixes in quick mode"
-      fi;;
+      __eubnt_add_to_log "Command line option: enabled quick mode";;
     s)
       if [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
         __option_sshd_setup="skip"
