@@ -339,11 +339,17 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:f:i:l:p:s:ahqtvxz" options; do
+while getopts ":b:c:d:f:i:l:p:s:ahqtvxz" options; do
   case "${options}" in
     a)
       __accept_license=true
       __eubnt_add_to_log "Command line option: accepted license";;
+    b)
+      if [[ -n "${OPTARG:-}" ]]; then
+        __option_ubnt_bearer_token="${OPTARG}"
+      else
+        __eubnt_show_help "ERROR: Option -b requires a command argument"
+      fi;;
     c)
       if [[ -n "${OPTARG:-}" ]]; then
         __ubnt_product_command="${OPTARG}"
