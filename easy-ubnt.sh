@@ -278,6 +278,7 @@ __regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
 __regex_number='^[0-9]+$'
 __regex_version_major_minor='^[0-9]+\.[0-9]+$'
 __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
+__regex_version_full_tagged='[0-9]+\.[0-9]+\.[0-9]+(-.*)?$'
 __regex_version_java8='^8u[0-9]{1,3}$'
 __regex_version_mongodb3_4='^(2\.(4\.[0-9]{2}|[5-9]\.[0-9]{1,2}|[0-9]{2}\.[0-9]{1,2}))|(^3\.[0-4]\.[0-9]{1,2})$'
 __version_mongodb3_4="3.4.99"
@@ -1302,7 +1303,7 @@ function __eubnt_ubnt_get_product() {
           found_update="$(wget --quiet --header="Authorization: Bearer token:${__option_ubnt_bearer_token}" --output-document - "${update_url}")"
         fi
         if [[ -n "${found_update:-}" ]]; then
-          found_version="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | .version')"
+          found_version="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | .version' | sed 's/^[^0-9]*[^0-9]//')"
           if [[ "${ubnt_product}" = "unifi-controller" ]]; then
             found_version="$(echo "${found_version}" | sed 's/+.*//; s/[^0-9.]//g')"
           fi
@@ -1346,7 +1347,7 @@ function __eubnt_ubnt_get_product() {
     if [[ "${download_url:-}" =~ ${__regex_url_ubnt_deb} && "${3:-}" = "url" ]]; then
       echo -n "${download_url}"
       return 0
-    elif [[ "${found_version:-}" =~ ${__regex_version_full} && "${3:-}" != "url" ]]; then
+    elif [[ ( "${found_version:-}" =~ ${__regex_version_full} || "${found_version:-}" =~ ${__regex_version_full_tagged} ) && "${3:-}" != "url" ]]; then
       echo -n "${found_version}"
       return 0
     fi
