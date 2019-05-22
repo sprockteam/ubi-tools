@@ -10,7 +10,7 @@
 __script_title="Easy UBNT"
 __script_name="easy-ubnt"
 __script_name_short="eubnt"
-__script_version="v0.6.5"
+__script_version="v0.6.6-dev"
 __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Adrian Miller (adrianmmiller)
