@@ -378,7 +378,7 @@ while getopts ":b:c:d:f:i:l:p:s:ahqtvxz" options; do
     h|\?)
       __eubnt_show_help;;
     i)
-      if [[ -n "${OPTARG:-}" && ( "${OPTARG:-}" = "stable" || \
+      if [[ -n "${OPTARG:-}" && ( "${OPTARG:-}" = "stable" || "${OPTARG:-}" = "beta" || \
          ( "${OPTARG:-}" =~ ${__regex_version_full} || "${OPTARG:-}" =~ ${__regex_version_major_minor} ) ) ]]; then
         __option_ubnt_product_setup="${OPTARG}"
         __eubnt_add_to_log "Command line option: specified UBNT product version ${__option_ubnt_product_setup}"
@@ -1250,12 +1250,13 @@ function __eubnt_ubnt_get_product() {
     fi
     local update_url=
     local download_url=""
+    local found_update=""
     local found_version=""
     local version_major=""
     local version_minor=""
     local version_patch=""
     IFS='.' read -r -a version_array <<< "${2}"
-    if [[ "${where_to_look:-}" = "ubnt" && ( ${#version_array[@]} -gt 0 || "${2}" = "stable" ) ]]; then
+    if [[ "${where_to_look:-}" = "ubnt" && ( ${#version_array[@]} -gt 0 || "${2}" = "stable" || "${2}" = "beta" ) ]]; then
       if ! __eubnt_is_package_installed "jq"; then
         __eubnt_install_package "jq"
       fi
@@ -1277,8 +1278,8 @@ function __eubnt_ubnt_get_product() {
       elif [[ "${ubnt_product}" = "unifi-controller" ]]; then
         product_channel="${product_channel}release"
         product_platform="${product_platform}debian"
-      elif [[ "${ubnt_product}" = "unifi-protect" && -n "${__architecture:-}" ]]; then
-        product_channel="${product_channel}release"
+      elif [[ "${ubnt_product}" = "unifi-protect" && -n "${__architecture:-}" && -n "${__option_ubnt_bearer_token:-}" ]]; then
+        product_channel=""
         product_platform="${product_platform}Debian9_${__architecture}"
       elif [[ "${ubnt_product}" = "unifi-video" && -n "${__architecture:-}" ]]; then
         product_channel="${product_channel}release"
@@ -1292,11 +1293,20 @@ function __eubnt_ubnt_get_product() {
           product_platform="${product_platform}Debian7_${__architecture}"
         fi
       fi
-      if [[ -n "${product:-}" && -n "${product_channel:-}" && -n "${product_platform:-}" ]]; then
+      if [[ -n "${product:-}" && -n "${product_platform:-}" ]]; then
         local update_url="${__ubnt_update_api}${product}${product_platform}${product_channel}${version_major:-}${version_minor:-}${version_patch:-}&sort=-version&limit=1"
-        declare -a wget_update=(wget --quiet --output-document - "${update_url}")
         # shellcheck disable=SC2068
-        found_version="$(${wget_update[@]} | jq -r '._embedded.firmware | .[0] | .version' | sed 's/+.*//; s/[^0-9.]//g')"
+        found_update="$(wget --quiet --output-document - "${update_url}")"
+        if [[ -n "${__option_ubnt_bearer_token:-}" ]]; then
+          # shellcheck disable=SC2068
+          found_update="$(wget --quiet --header="Authorization: Bearer token:${__option_ubnt_bearer_token}" --output-document - "${update_url}")"
+        fi
+        if [[ -n "${found_update:-}" ]]; then
+          found_version="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | .version')"
+          if [[ "${ubnt_product}" = "unifi-controller" ]]; then
+            found_version="$(echo "${found_version}" | sed 's/+.*//; s/[^0-9.]//g')"
+          fi
+        fi
         if [[ "${ubnt_product}" = "unifi-controller" ]]; then
           if [[ ! "${found_version:-}" =~ ${__regex_version_full} ]]; then
             found_version="${2}"
@@ -1328,7 +1338,7 @@ function __eubnt_ubnt_get_product() {
         else
           if [[ "${3:-}" = "url" ]]; then
             # shellcheck disable=SC2068
-            download_url="$(${wget_update[@]} | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+            download_url="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
           fi
         fi
       fi
