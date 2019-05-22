@@ -2067,13 +2067,13 @@ function __eubnt_setup_ssh_server() {
       if [[ -n "${__option_sshd_setup:-}" && "${__option_sshd_setup}" =~ ${__regex_port_number} ]]; then
         sshd_port="${__option_sshd_setup}"
       else
-        if __eubnt_question_prompt "Change SSH port (currently ${__sshd_port})?" "return" "n"; then
+        if __eubnt_question_prompt "Change SSH port (currently ${__sshd_port:-22})?" "return" "n"; then
           while [[ ! "${sshd_port:-}" =~ ^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]]; do
             __eubnt_get_user_input "Port number to use: " "sshd_port"
           done
         fi
       fi
-      if [[ -n "${sshd_port:-}" && "${sshd_port}" =~ ${__regex_port_number} ]]; then
+      if [[ "${sshd_port:-}" =~ ${__regex_port_number} && "${__sshd_port:-}" =~ ${__regex_port_number} && "${sshd_port:-}" != "${__sshd_port:-}" ]]; then
         if grep --quiet ".*Port.*" "${__sshd_config}"; then
           sed -i "s/^.*Port.*$/Port ${sshd_port}/" "${__sshd_config}"
         else
