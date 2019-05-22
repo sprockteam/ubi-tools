@@ -2576,6 +2576,26 @@ function __eubnt_cli_unifi_controller_archive_alerts() {
   return 1
 }
 
+# A wrapper function to get the available UniFi Protect Controller download URL for given version
+function __eubnt_cli_unifi_protect_get_available_download() {
+  local download_to_check="$(__eubnt_ubnt_get_product "unifi-protect" "${1:-beta}" "url" | tail --lines=1)"
+  if [[ "${download_to_check:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+    echo -n "${download_to_check}"
+  else
+    return 1
+  fi
+}
+
+# A wrapper function to get the available UniFi Protect Controller version number
+function __eubnt_cli_unifi_protect_get_available_version() {
+  local version_to_check="$(__eubnt_ubnt_get_product "unifi-protect" "${1:-beta}" | tail --lines=1)"
+  if [[ "${version_to_check:-}" =~ ${__regex_version_full_tagged} ]]; then
+    echo -n "${version_to_check}"
+  else
+    return 1
+  fi
+}
+
 ### Miscellaneous fixes and things
 ##############################################################################
 
