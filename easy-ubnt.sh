@@ -364,6 +364,8 @@ while getopts ":c:d:f:i:l:p:s:ahqtvxz" options; do
       elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "skip" ]]; then
         __option_firewall_setup="skip"
         __eubnt_add_to_log "Command line option: skip firewall setup"
+      elif [[ -n "${OPTARG:-}" && "${OPTARG:-}" = "on" ]]; then
+        __eubnt_add_to_log "Command line option: defaulting firewall setup to on"
       else
         __eubnt_show_help "ERROR: Unknown argument for -${options}: ${OPTARG:-}"
       fi;;
