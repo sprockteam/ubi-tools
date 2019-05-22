@@ -73,6 +73,7 @@ wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
   -t          Bypass normal script execution and run tests
   -v          Enable verbose screen output
   -x          Enable script execution tracing
+  -z          Bypass initial system checks, common fixes and updates
 ```
 
 ### Quick mode example
