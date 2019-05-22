@@ -2061,15 +2061,13 @@ function __eubnt_setup_ssh_server() {
     cp "${__sshd_config}" "${__sshd_config}.bak-${__script_time}"
     __eubnt_show_notice "Checking OpenSSH server settings for recommended changes..."
     echo
-    if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") ]]; then
-      __sshd_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}')
+    if [[ $(grep ".*Port 22$" "${__sshd_config}") || ! $(grep ".*Port.*" "${__sshd_config}") || "${__option_sshd_setup:-}" =~ ${__regex_port_number} ]]; then
+      __sshd_port=$(grep "Port" "${__sshd_config}" --max-count=1 | awk '{print $NF}' || echo "22")
       local sshd_port=""
       if [[ -n "${__option_sshd_setup:-}" && "${__option_sshd_setup}" =~ ${__regex_port_number} ]]; then
-        if [[ "${__option_sshd_setup}" != "${__sshd_port:-22}" ]]; then
-          sshd_port="${__option_sshd_setup}"
-        fi
+        sshd_port="${__option_sshd_setup}"
       else
-        if __eubnt_question_prompt "Change SSH port from the default 22?" "return" "n"; then
+        if __eubnt_question_prompt "Change SSH port (currently ${__sshd_port})?" "return" "n"; then
           while [[ ! "${sshd_port:-}" =~ ^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$ ]]; do
             __eubnt_get_user_input "Port number to use: " "sshd_port"
           done
