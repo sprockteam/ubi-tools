@@ -80,12 +80,6 @@ if [ ! "$BASH_VERSION" ]; then
   exit 1
 fi
 
-# As of now, this script is designed to run on Debian-based distributions
-if ! command -v apt-get &>/dev/null; then
-  echo -e "\\nStartup failed! Please run this on a Debian-based distribution\\n"
-  exit 1
-fi
-
 # Display basic usage information and exit
 # $1: An optional message to display
 function __eubnt_show_help() {
@@ -134,14 +128,20 @@ function __eubnt_show_help() {
               'skip' - Don't do anything with SSH
   -t          Bypass normal script execution and run tests
   -v          Enable verbose screen output
-  -x          Enable script execution tracing\\n"
+  -x          Enable script execution tracing
+  -z          Bypass initial system checks, common fixes and updates\\n"
   exit 1
 }
+
+# As of now, this script is designed to run on Debian-based distributions
+if ! command -v apt-get &>/dev/null; then
+  __eubnt_show_help "Startup failed! Please run this on a Debian-based distribution!"
+fi
 
 # Root or sudo privilege is needed to install things and make system changes
 # TODO: Only run commands as root when needed?
 if [[ $(id --user) -ne 0 ]]; then
-  __eubnt_show_help
+  __eubnt_show_help "Startup failed! Root access required!"
 fi
 
 # This script is for i386, amd64, armhf and arm64
@@ -158,8 +158,7 @@ for arch in "${!__supported_architectures[@]}"; do
   fi
 done
 if [[ -z "${__is_32:-}" && -z "${__is_64:-}" ]]; then
-  echo -e "\\nStartup failed! Unknown architecture ${__architecture:-}\\n"
-  exit 1
+  __eubnt_show_help "Startup failed! Unknown architecture: ${__architecture:-}"
 fi
 
 ### Initialize variables
@@ -340,7 +339,7 @@ function __eubnt_echo_and_log() {
 
 # Basic way to get command line options
 # TODO: Incorporate B3BP methods here for long options
-while getopts ":c:d:f:i:l:p:s:ahqtvx" options; do
+while getopts ":c:d:f:i:l:p:s:ahqtvxz" options; do
   case "${options}" in
     a)
       __accept_license=true
@@ -429,6 +428,9 @@ while getopts ":c:d:f:i:l:p:s:ahqtvx" options; do
       set -o xtrace
       __script_debug=true
       __eubnt_add_to_log "Command line option: enabled xtrace debugging";;
+    z)
+      __option_zoom_mode=true
+      __eubnt_add_to_log "Command line option: enabled zoom mode";;
     *)
       break;;
   esac
@@ -2666,7 +2668,7 @@ if [[ -z "${__accept_license:-}" ]]; then
   echo
 fi
 __eubnt_show_header "Checking system..."
-if [[ -z "${__quick_skip_mode:-}" ]]; then
+if [[ -z "${__option_zoom_mode:-}" ]]; then
   ubnt_dl_ip=""
   __eubnt_run_command "dig +short ${__ubnt_dl:-}" "quiet" "ubnt_dl_ip"
   ubnt_dl_ip="$(echo "${ubnt_dl_ip:-}" | tail --lines=1)"
@@ -2725,7 +2727,7 @@ else
     __eubnt_question_prompt "" "exit"
   fi
 fi
-if [[ -z "${__is_cloud_key:-}" && -z "${__quick_skip_mode:-}" ]]; then
+if [[ -z "${__is_cloud_key:-}" && -z "${__option_zoom_mode:-}" ]]; then
   __eubnt_common_fixes
   if ! __eubnt_setup_sources; then
     __eubnt_show_error "Unable to setup package sources"
