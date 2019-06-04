@@ -80,13 +80,26 @@ if [ ! "$BASH_VERSION" ]; then
   exit 1
 fi
 
+# Script colors and special text to use
+__colors_bold_text="\e[1m"
+__colors_warning_text="\e[1;31m"
+__colors_error_text="\e[1;31m"
+__colors_notice_text="\e[1;36m"
+__colors_success_text="\e[1;32m"
+__colors_default="\e[0m"
+__spinner="-\\|/"
+__failed_mark="${__colors_warning_text}x${__colors_default}"
+__completed_mark="${__colors_success_text}ok${__colors_default}"
+
+# Display an error and exit
+function __eubnt_startup_error() {
+  echo -e "\\n${__colors_warning_text}Startup failed! ${1:-}${__colors_default}\\n"
+  exit 1
+}
+
 # Display basic usage information and exit
 # $1: An optional message to display
 function __eubnt_show_help() {
-  if [[ -n "${1:-}" ]]; then
-    echo
-    echo -e "${1}"
-  fi
   echo -e "
   Note:
   This script currently requires root access.
@@ -130,18 +143,22 @@ function __eubnt_show_help() {
   -v          Enable verbose screen output
   -x          Enable script execution tracing
   -z          Bypass initial system checks, common fixes and updates\\n"
-  exit 1
+  if [[ -n "${1:-}" ]]; then
+    __eubnt_startup_error "${1}"
+  else
+    exit 1
+  fi
 }
 
 # As of now, this script is designed to run on Debian-based distributions
 if ! command -v apt-get &>/dev/null; then
-  __eubnt_show_help "Startup failed! Please run this on a Debian-based distribution!"
+  __eubnt_startup_error "Please run this on a Debian-based distribution!"
 fi
 
 # Root or sudo privilege is needed to install things and make system changes
 # TODO: Only run commands as root when needed?
 if [[ $(id --user) -ne 0 ]]; then
-  __eubnt_show_help "Startup failed! Root access required!"
+  __eubnt_startup_error "Root access required!"
 fi
 
 # This script is for i386, amd64, armhf and arm64
