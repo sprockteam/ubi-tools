@@ -1479,6 +1479,7 @@ function __eubnt_initialize_unifi_controller_variables() {
   __unifi_controller_mongodb_ace_stat=""
   __unifi_controller_data_version=""
   __unifi_controller_package_version=""
+  __unifi_controller_hostname=""
   if [[ "${2:-}" != "skip_get_versions" ]]; then
     if [[ ! "${__unifi_available_version_stable:-}" =~ ${__regex_version_full} ]]; then
       __unifi_available_version_stable="$(__eubnt_ubnt_get_product "unifi-controller" "stable" | tail --lines=1)"
@@ -1526,8 +1527,20 @@ function __eubnt_initialize_unifi_controller_variables() {
                     __unifi_controller_has_data=true
                     if __eubnt_is_command "mongo"; then
                       # shellcheck disable=SC2016,SC2086
-                      if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} ${__unifi_controller_mongodb_ace} --eval 'db.device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' | grep --quiet "adopted\" : true"; then
+                      if mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} ${__unifi_controller_mongodb_ace} --eval 'db.device.find({model: { $regex: /^U7E$|^U7O$|^U7Ev2$/ }})' 2>/dev/null | grep --quiet "adopted\" : true"; then
                         __unifi_controller_limited_to_lts=true
+                      fi
+                      local configured_hostname=""
+                      local resolved_domain_name=""
+                      local apparent_public_ip=""
+                      configured_hostname="$(mongo --quiet --host ${__unifi_controller_mongodb_host} --port ${__unifi_controller_mongodb_port} ${__unifi_controller_mongodb_ace} --eval 'db.setting.find({"key": "super_identity"}).forEach(function(setting){ print(setting.hostname) })' 2>/dev/null | tail --lines=1)"
+                      if [[ "${configured_hostname:-}" =~ ${__regex_hostname} && ${#configured_hostname} -lt 254 ]]; then
+                        # shellcheck disable=SC2086
+                        resolved_domain_name="$(dig +short ${configured_hostname} @${__recommended_nameserver} | tail --lines=1)"
+                        apparent_public_ip="$(wget --quiet --output-document - "${__ip_lookup_url}")"
+                        if [[ "${apparent_public_ip:-}" =~ ${__regex_ip_address} && "${resolved_domain_name:-}" =~ ${__regex_ip_address} && "${apparent_public_ip}" = "${resolved_domain_name}" ]]; then
+                          __unifi_controller_hostname="${configured_hostname}"
+                        fi
                       fi
                     fi
                   else
@@ -2553,6 +2566,16 @@ function __eubnt_invoke_cli() {
       exit 1
     fi
   fi
+}
+
+# A wrapper function to get the available UniFi Network Controller configured hostname
+function __eubnt_cli_unifi_controller_get_hostname() {
+  __eubnt_initialize_unifi_controller_variables "skip_ports" "skip_get_versions"
+  if [[ -n "${__unifi_controller_hostname:-}" ]]; then
+    echo -n "${__unifi_controller_hostname}"
+    return 0
+  fi
+  return 1
 }
 
 # A wrapper function to get the available UniFi Network Controller version number
