@@ -292,6 +292,7 @@ __regex_ip_address_list='^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){
 __regex_port_number='^([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$'
 __regex_url='^http(s)?:\/\/\S+$'
 __regex_url_ubnt_deb='^http(s)?:\/\/.*(ui\.com|ubnt\.com)\S+\.deb$'
+__regex_hostname='^([a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.?)+$'
 __regex_number='^[0-9]+$'
 __regex_version_major_minor='^[0-9]+\.[0-9]+$'
 __regex_version_full='^[0-9]+\.[0-9]+\.[0-9]+$'
