@@ -1373,39 +1373,39 @@ function __eubnt_ubnt_get_product() {
           if [[ "${ubnt_product}" = "unifi-controller" ]]; then
             found_version="$(echo "${found_version}" | sed 's/+.*//; s/[^0-9.]//g')"
           fi
-        fi
-        if [[ "${ubnt_product}" = "unifi-controller" ]]; then
-          if [[ ! "${found_version:-}" =~ ${__regex_version_full} ]]; then
-            found_version="${2}"
-          fi
-          local check_download_url="https://dl.ubnt.com/unifi/${found_version}/unifi_sysvinit_all.deb"
-          local latest_download_url=""
-          if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
-            latest_download_url="${check_download_url}"
-          fi
-          if [[ ! "${2}" =~ ${__regex_version_full} && "${found_version:-}" =~ ${__regex_version_full} ]]; then
-            IFS='.' read -r -a version_array <<< "${found_version}"
-            local check_patch=$(( version_array[2]+1 ))
-            local max_patch=$(( version_array[2]+10 ))
-            local check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
-            while [[ "${check_version:-}" =~ ${__regex_version_full} && ${check_patch} -le ${max_patch} ]]; do
-              check_download_url="https://dl.ubnt.com/unifi/${check_version}/unifi_sysvinit_all.deb"
-              if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
-                latest_download_url="${check_download_url}"
-                found_version="${check_version}"
-                break
-              fi
-              (( check_patch++ ))
-              check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
-            done
-          fi
-          if [[ "${3:-}" = "url" && "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
-            download_url="${latest_download_url}"
-          fi
-        else
-          if [[ "${3:-}" = "url" ]]; then
-            # shellcheck disable=SC2068
-            download_url="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+          if [[ "${ubnt_product}" = "unifi-controller" ]]; then
+            if [[ ! "${found_version:-}" =~ ${__regex_version_full} ]]; then
+              found_version="${2}"
+            fi
+            local check_download_url="https://dl.ubnt.com/unifi/${found_version}/unifi_sysvinit_all.deb"
+            local latest_download_url=""
+            if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
+              latest_download_url="${check_download_url}"
+            fi
+            if [[ ! "${2}" =~ ${__regex_version_full} && "${found_version:-}" =~ ${__regex_version_full} ]]; then
+              IFS='.' read -r -a version_array <<< "${found_version}"
+              local check_patch=$(( version_array[2]+1 ))
+              local max_patch=$(( version_array[2]+10 ))
+              local check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+              while [[ "${check_version:-}" =~ ${__regex_version_full} && ${check_patch} -le ${max_patch} ]]; do
+                check_download_url="https://dl.ubnt.com/unifi/${check_version}/unifi_sysvinit_all.deb"
+                if [[ "${check_download_url:-}" =~ ${__regex_url_ubnt_deb} ]] && wget --quiet --spider "${check_download_url}"; then
+                  latest_download_url="${check_download_url}"
+                  found_version="${check_version}"
+                  break
+                fi
+                (( check_patch++ ))
+                check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
+              done
+            fi
+            if [[ "${3:-}" = "url" && "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+              download_url="${latest_download_url}"
+            fi
+          else
+            if [[ "${3:-}" = "url" ]]; then
+              # shellcheck disable=SC2068
+              download_url="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+            fi
           fi
         fi
       fi
