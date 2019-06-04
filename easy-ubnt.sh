@@ -312,6 +312,8 @@ __github_api_releases_stable="${__github_api_releases_all}/latest"
 
 # Use Git repository to obtain and run the latest version
 if [[ -n "${__script_check_for_updates:-}" ]]; then
+  echo "Checking for script updates..."
+  git_refreshed=
   if ! command -v git &>/dev/null; then
     if ! apt-get install --yes git &>/dev/null; then
       __eubnt_startup_error "Unable to install git!"
@@ -320,9 +322,10 @@ if [[ -n "${__script_check_for_updates:-}" ]]; then
   if cd "${__script_dir:-}"; then
     if [[ "$(git config --get remote.origin.url)" = "${__script_git_url:-}" ]]; then
       if git fetch; then
-        if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]]; then
-          if git reset --hard origin/master; then
-            __git_refreshed=true
+        if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/${__script_git_branch})" ]]; then
+          # shellcheck disable=SC2086
+          if git reset --hard origin/${__script_git_branch}; then
+            git_refreshed=true
           fi
         fi
       fi
@@ -333,8 +336,9 @@ if [[ -n "${__script_check_for_updates:-}" ]]; then
       if git init; then
         if git remote add origin "${__script_git_url:-}"; then
           if git fetch; then
-            if git reset --hard origin/master; then
-              __git_refreshed=true
+            # shellcheck disable=SC2086
+            if git reset --hard origin/${__script_git_branch}; then
+              git_refreshed=true
             fi
           fi
         fi
@@ -356,11 +360,13 @@ if [[ -n "${__script_check_for_updates:-}" ]]; then
       __script_command_line=("${__script_path}")
     fi
   fi
-  if [[ -n "${git_refreshed:-}" && -n "${script_command_line:-}" ]]; then
+  if [[ -n "${git_refreshed:-}" && -n "${__script_command_line:-}" ]]; then
     if [[ -n "${@}" ]]; then
       IFS=' ' read -r -a script_options <<< "${@}"
       __script_command_line+=("${script_options[@]}")
     fi
+    echo "Running updated script..."
+    sleep 2
     "${__script_command_line[@]}"
   fi
 fi
@@ -2606,7 +2612,7 @@ function __eubnt_invoke_cli() {
     __ubnt_product_command="$(echo "${__ubnt_product_command}" | sed 's/-/_/g')"
     local command_type="$(type -t "__eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command}" 2>/dev/null || true)"
     if [[ "${command_type:-}" = "function" ]]; then
-      # shellcheck disable=SC2086,SC2086
+      # shellcheck disable=SC2086
       __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__option_ubnt_product_setup:-}" || true
       exit
     else
