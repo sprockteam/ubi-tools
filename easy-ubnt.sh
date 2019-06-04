@@ -2604,7 +2604,7 @@ function __eubnt_invoke_cli() {
   if [[ -n "${__ubnt_product_command:-}" && -n "${__ubnt_selected_product:-}" ]]; then
     __ubnt_selected_product="$(echo "${__ubnt_selected_product}" | sed 's/-/_/g')"
     __ubnt_product_command="$(echo "${__ubnt_product_command}" | sed 's/-/_/g')"
-    local command_type="$(type -t "__eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command}")"
+    local command_type="$(type -t "__eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command}" 2>/dev/null || true)"
     if [[ "${command_type:-}" = "function" ]]; then
       # shellcheck disable=SC2086,SC2086
       __eubnt_cli_${__ubnt_selected_product}_${__ubnt_product_command} "${__option_ubnt_product_setup:-}" || true
