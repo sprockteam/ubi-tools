@@ -174,23 +174,24 @@ for arch in "${!__supported_architectures[@]}"; do
     break
   fi
 done
+
 if [[ -z "${__is_32:-}" && -z "${__is_64:-}" ]]; then
-  __eubnt_show_help "Startup failed! Unknown architecture: ${__architecture:-}"
+  __eubnt_startup_error "Unknown architecture: ${__architecture:-}"
 fi
 
 ### Initialize variables
 ##############################################################################
 
 # Script variables
-__script_check_for_updates=
-__script_setup_executable=
+__script_check_for_updates=true
+__script_setup_executable=true
 __script_test_mode=
 __script_error=
 __script_is_piped="$(tty --silent && echo -n || echo -n true)"
 __script_time="$(date +%s)"
 __script_git_url="https://github.com/sprockteam/easy-ubnt.git"
-__script_git_branch="master"
-__script_git_raw_content="https://github.com/sprockteam/easy-ubnt/raw/${__script_git_branch}"
+__script_git_branch="$([[ "${__script_version##*-}" = "dev" ]] && echo -n "development" || echo "master")"
+__script_git_raw_content="https://raw.githubusercontent.com/sprockteam/easy-ubnt/${__script_git_branch}"
 __script_dir="$(mkdir --parents "/usr/lib/${__script_name}" && echo -n "/usr/lib/${__script_name}" || exit 1)"
 __script_file="${__script_name}.sh"
 __script_path="${__script_dir}/${__script_file}"
@@ -306,16 +307,63 @@ __ip_lookup_url="sprocket.link/ip"
 __github_api_releases_all="https://api.github.com/repos/__/releases"
 __github_api_releases_stable="${__github_api_releases_all}/latest"
 
-# Script colors and special text to use
-__colors_bold_text="\e[1m"
-__colors_warning_text="\e[1;31m"
-__colors_error_text="\e[1;31m"
-__colors_notice_text="\e[1;36m"
-__colors_success_text="\e[1;32m"
-__colors_default="\e[0m"
-__spinner="-\\|/"
-__failed_mark="${__colors_warning_text}x${__colors_default}"
-__completed_mark="${__colors_success_text}ok${__colors_default}"
+### Update script before launch
+##############################################################################
+
+# Use Git repository to obtain and run the latest version
+if [[ -n "${__script_check_for_updates:-}" ]]; then
+  if ! command -v git &>/dev/null; then
+    if ! apt-get install --yes git &>/dev/null; then
+      __eubnt_startup_error "Unable to install git!"
+    fi
+  fi
+  if cd "${__script_dir:-}"; then
+    if [[ "$(git config --get remote.origin.url)" = "${__script_git_url:-}" ]]; then
+      if git fetch; then
+        if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]]; then
+          if git reset --hard origin/master; then
+            __git_refreshed=true
+          fi
+        fi
+      fi
+    else
+      if [[ -d ".git" ]]; then
+        rm -rf .git
+      fi
+      if git init; then
+        if git remote add origin "${__script_git_url:-}"; then
+          if git fetch; then
+            if git reset --hard origin/master; then
+              __git_refreshed=true
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+  if [[ -n "${__script_setup_executable:-}" ]]; then
+    if ln --force --symbolic "${__script_path:-}" "${__script_sbin_command:-}" 2>/dev/null && ln --force --symbolic "${__script_path:-}" "${__script_sbin_command_short:-}" 2>/dev/null; then
+      if chmod +x "${__script_sbin_command:-}" 2>/dev/null && chmod +x "${__script_sbin_command_short:-}" 2>/dev/null; then
+        __script_command_line=("${__script_sbin_command}")
+      else
+        __eubnt_startup_error "Unable to make this script executable!"
+      fi
+    else
+      __eubnt_startup_error "Unable to create a symbolic link for the script!"
+    fi
+  else
+    if chmod +x "${__script_path:-}"; then
+      __script_command_line=("${__script_path}")
+    fi
+  fi
+  if [[ -n "${git_refreshed:-}" && -n "${script_command_line:-}" ]]; then
+    if [[ -n "${@}" ]]; then
+      IFS=' ' read -r -a script_options <<< "${@}"
+      __script_command_line+=("${script_options[@]}")
+    fi
+    "${__script_command_line[@]}"
+  fi
+fi
 
 ### Logging functions
 ##############################################################################
