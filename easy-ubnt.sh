@@ -2694,7 +2694,7 @@ function __eubnt_cli_unifi_protect_get_available_version() {
 # Remove cached source list information
 # Fix for kernel files filling /boot in Ubuntu
 # Fix localhost issue on Ubuntu for sudo use
-# Update apt-get and apt-file
+# Update apt-get
 function __eubnt_common_fixes {
   if [[ "${1:-}" != "noheader" ]]; then
     __eubnt_show_header "Running common fixes...\\n"
@@ -2736,7 +2736,6 @@ function __eubnt_common_fixes {
     fi
   fi
   __eubnt_run_command "apt-get update" || true
-  __eubnt_run_command "apt-file update" || true
 }
 
 # Recommended by CrossTalk Solutions (https://crosstalksolutions.com/15-minute-hosted-unifi-controller-setup/)
