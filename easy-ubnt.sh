@@ -1327,6 +1327,7 @@ function __eubnt_ubnt_get_product() {
     local download_url=""
     local found_update=""
     local found_version=""
+    local found_url=""
     local version_major=""
     local version_minor=""
     local version_patch=""
@@ -1378,6 +1379,8 @@ function __eubnt_ubnt_get_product() {
         fi
         if [[ -n "${found_update:-}" ]]; then
           found_version="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | .version' | sed 's/^[^0-9]*[^0-9]//')"
+          # shellcheck disable=SC2068
+          found_url="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
           if [[ "${ubnt_product}" = "unifi-controller" ]]; then
             found_version="$(echo "${found_version}" | sed 's/+.*//; s/[^0-9.]//g')"
           fi
@@ -1406,13 +1409,16 @@ function __eubnt_ubnt_get_product() {
                 check_version="${version_array[0]}.${version_array[1]}.${check_patch}"
               done
             fi
-            if [[ "${3:-}" = "url" && "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
-              download_url="${latest_download_url}"
+            if [[ "${3:-}" = "url" ]]; then
+              if [[ "${latest_download_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+                download_url="${latest_download_url}"
+              elif [[ "${found_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+                download_url="${found_url}"
+              fi
             fi
           else
-            if [[ "${3:-}" = "url" ]]; then
-              # shellcheck disable=SC2068
-              download_url="$(echo "${found_update}" | jq -r '._embedded.firmware | .[0] | ._links.data.href')"
+            if [[ "${3:-}" = "url" && "${found_url:-}" =~ ${__regex_url_ubnt_deb} ]]; then
+              download_url="${found_url}"
             fi
           fi
         fi
