@@ -224,6 +224,7 @@ __recommended_swap_total_gb="2"
 __nameservers="$(awk '/nameserver/{print $2}' /etc/resolv.conf | xargs)"
 __is_user_sudo="$([[ -n "${SUDO_USER:-}" ]] && echo -n true || echo -n)"
 __hostname_local="$(hostname --short)"
+__debian_frontend="${DEBIAN_FRONTEND:-dialog}"
 export DEBIAN_FRONTEND="noninteractive"
 
 # Package decision variables
@@ -545,7 +546,7 @@ function __eubnt_cleanup_before_exit() {
   if __eubnt_is_package_installed "unifi"; then
     __eubnt_run_command "apt-mark unhold unifi" "quiet" || true
   fi
-  export DEBIAN_FRONTEND="dialog"
+  export DEBIAN_FRONTEND="${__debian_frontend:-dialog}"
   if [[ -n "${__restart_ssh_server:-}" ]]; then
     if __eubnt_run_command "service ssh restart"; then
       __eubnt_show_warning "The SSH service has been reloaded with a new configuration!\\n"
