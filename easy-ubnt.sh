@@ -2925,6 +2925,10 @@ if [[ "${__option_ubnt_product_setup:-}" != "skip" ]]; then
   fi
 fi
 __eubnt_setup_certbot || true
+if [[ -f /lib/systemd/system/certbot.timer ]]; then
+  __eubnt_run_command "systemctl enable certbot.timer" "quiet" || true
+  __eubnt_run_command "systemctl start certbot.timer" "quiet" || true
+fi
 if [[ -z "${__is_cloud_key:-}" ]]; then
   __eubnt_setup_ssh_server || true
   __eubnt_setup_ufw || true
