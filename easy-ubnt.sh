@@ -15,7 +15,7 @@ __script_full_title="${__script_title} ${__script_version}"
 __script_contributors="Klint Van Tassel (SprockTech)
 Adrian Miller (adrianmmiller)
 Frank Gabriel (Frankedinven)"
-__script_mentions="florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT, S0lutionS"
+__script_mentions="koalaman, florisvdk, jonbloom, Mattgphoto, samsawyer, SatisfyIT, S0lutionS"
 
 ### Copyrights, Mentions and Credits
 ##############################################################################
@@ -197,13 +197,10 @@ __script_file="${__script_name}.sh"
 __script_path="${__script_dir}/${__script_file}"
 __script_sbin_command="/sbin/${__script_name}"
 __script_sbin_command_short="/sbin/${__script_name_short}"
-__script_log_dir="$(mkdir --parents "/var/log/${__script_name}" && echo -n "/var/log/${__script_name}" || exit 1)"
-__script_log="$(touch "${__script_log_dir}/${__script_time}.log" && echo -n "${__script_log_dir}/${__script_time}.log" || exit 1)"
 __script_data_dir="$(mkdir --parents "/var/lib/${__script_name}" && echo -n "/var/lib/${__script_name}" || exit 1)"
 __script_temp_dir="$(mktemp --directory)"
-__script_real_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+__script_real_path="$(cd "$(dirname "$(readlink --canonicalize "${0}")")" && pwd)"
 __script_tests="${__script_real_path:-}/tests.sh"
-ln --force --symbolic "${__script_log}" "${__script_log_dir}/latest.log"
 
 # System variables
 __is_cloud_key="$(uname --release | grep --quiet "\-ubnt\-" && echo -n true || echo -n)"
@@ -312,19 +309,19 @@ __github_api_releases_stable="${__github_api_releases_all}/latest"
 
 # Use Git repository to obtain and run the latest version
 if [[ -n "${__script_check_for_updates:-}" ]]; then
-  echo "Checking for script updates..."
   git_refreshed=
   if ! command -v git &>/dev/null; then
     if ! apt-get install --yes git &>/dev/null; then
       __eubnt_startup_error "Unable to install git!"
     fi
   fi
-  if cd "${__script_dir:-}"; then
+  if cd "${__script_dir:-}" &>/dev/null; then
     if [[ "$(git config --get remote.origin.url)" = "${__script_git_url:-}" ]]; then
-      if git fetch; then
+      if git fetch &>/dev/null; then
+        # shellcheck disable=SC2086
         if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/${__script_git_branch})" ]]; then
           # shellcheck disable=SC2086
-          if git reset --hard origin/${__script_git_branch}; then
+          if git reset --hard origin/${__script_git_branch} &>/dev/null; then
             git_refreshed=true
           fi
         fi
@@ -333,11 +330,11 @@ if [[ -n "${__script_check_for_updates:-}" ]]; then
       if [[ -d ".git" ]]; then
         rm -rf .git
       fi
-      if git init; then
-        if git remote add origin "${__script_git_url:-}"; then
-          if git fetch; then
+      if git init &>/dev/null; then
+        if git remote add origin "${__script_git_url:-}" &>/dev/null; then
+          if git fetch &>/dev/null; then
             # shellcheck disable=SC2086
-            if git reset --hard origin/${__script_git_branch}; then
+            if git reset --hard origin/${__script_git_branch} &>/dev/null; then
               git_refreshed=true
             fi
           fi
@@ -361,18 +358,22 @@ if [[ -n "${__script_check_for_updates:-}" ]]; then
     fi
   fi
   if [[ -n "${git_refreshed:-}" && -n "${__script_command_line:-}" ]]; then
+    # shellcheck disable=SC2199
     if [[ -n "${@}" ]]; then
       IFS=' ' read -r -a script_options <<< "${@}"
       __script_command_line+=("${script_options[@]}")
     fi
-    echo "Running updated script..."
-    sleep 2
-    "${__script_command_line[@]}"
+    exec "${__script_command_line[@]}"
   fi
 fi
 
 ### Logging functions
 ##############################################################################
+
+# Setup log directory and file
+__script_log_dir="$(mkdir --parents "/var/log/${__script_name}" && echo -n "/var/log/${__script_name}" || exit 1)"
+__script_log="$(touch "${__script_log_dir}/${__script_time}.log" && echo -n "${__script_log_dir}/${__script_time}.log" || exit 1)"
+ln --force --symbolic "${__script_log}" "${__script_log_dir}/latest.log"
 
 # Add to the script log file
 # $1: The message to log
