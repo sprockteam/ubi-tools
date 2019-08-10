@@ -2365,8 +2365,6 @@ if [[ -f ${letsencrypt_privkey} && -f ${letsencrypt_fullchain} ]]; then
     openssl pkcs12 -export -inkey ${letsencrypt_privkey} -in ${letsencrypt_fullchain} -out ${letsencrypt_live_dir}/fullchain.p12 -name unifi -password pass:aircontrolenterprise &>/dev/null
     keytool -delete -alias unifi -keystore ${__unifi_controller_data_dir}/keystore -deststorepass aircontrolenterprise &>/dev/null
     keytool -importkeystore -deststorepass aircontrolenterprise -destkeypass aircontrolenterprise -destkeystore ${__unifi_controller_data_dir}/keystore -srckeystore ${letsencrypt_live_dir}/fullchain.p12 -srcstoretype PKCS12 -srcstorepass aircontrolenterprise -alias unifi -noprompt &>/dev/null
-    echo "unifi.https.ciphers=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,TLS_DHE_RSA_WITH_AES_128_CBC_SHA,TLS_EMPTY_RENEGOTIATION_INFO_SCSVF" | tee -a "${__unifi_controller_system_properties}"
-    echo "unifi.https.sslEnabledProtocols=+TLSv1.1,+TLSv1.2,+SSLv2Hello" | tee -a "${__unifi_controller_system_properties}"
     service unifi restart &>/dev/null
   fi
 fi
