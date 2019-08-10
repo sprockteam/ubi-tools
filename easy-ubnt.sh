@@ -420,7 +420,7 @@ while getopts ":b:c:d:f:i:l:p:s:ahqtvxz" options; do
       __eubnt_add_to_log "Command line option: accepted license";;
     b)
       if [[ -n "${OPTARG:-}" ]]; then
-        __option_ubnt_bearer_token="${OPTARG}"
+        __private_ubnt_bearer_token="${OPTARG}"
       else
         __eubnt_show_help "ERROR: Option -b requires a command argument"
       fi;;
@@ -587,7 +587,7 @@ function __eubnt_cleanup_before_exit() {
   set +o xtrace
   __eubnt_add_to_log "Dumping variables to log..."
   for var_name in ${!__*}; do
-    if [[ -n "${!var_name:-}" && "${var_name}" != "__script_contributors" ]]; then
+    if [[ -n "${!var_name:-}" && "${var_name}" != "__private"* ]]; then
       __eubnt_add_to_log "${var_name}=${!var_name}"
     fi
     if [[ "${var_name}" != "__script_log" && "${var_name}" != "__ubnt_product_command" ]]; then
