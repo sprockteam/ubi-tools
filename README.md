@@ -1,33 +1,8 @@
-# Easy UBNT
-A collection of tools to make managing UBNT software easier!
-
-### Who would benefit from this project?
-* System administrators who are experienced with Linux but would prefer a "cheatsheet" so they don't have to learn or re-learn the recommended way to install UBNT software whenever they need to deploy or re-deploy servers.
-* System administrators with limited Linux experience.
-* End-users who want an easy way to install and manage UBNT software.
-
-### How to begin
+### How to use the Easy UBNT (deprecated) script
 You can run the script this way:
 ```console
-wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/master/easy-ubnt.sh -O easy-ubnt.sh
+wget https://raw.githubusercontent.com/sprockteam/ubi-tools/master/easy-ubnt.sh -O easy-ubnt.sh
 sudo bash easy-ubnt.sh
-```
-
-For convenience, the script is also available using a short link:
-```console
-wget sprocket.link/eubnt -O easy-ubnt.sh && sudo bash easy-ubnt.sh
-```
-
-### Dev branch
-You can run the latest development branch version of the script this way:
-```console
-wget https://raw.githubusercontent.com/sprockteam/easy-ubnt/development/easy-ubnt.sh -O easy-ubnt.sh
-sudo bash easy-ubnt.sh
-```
-
-Or for convenience, you can run the dev branch version this way:
-```console
-wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
 ```
 
 ### Script command-line useage
@@ -79,7 +54,7 @@ wget sprocket.link/eubntdev -O easy-ubnt.sh && sudo bash easy-ubnt.sh
 ### Quick mode example
 You can run the script this way to quickly deploy a server with a Let's Encrypt cert and a basic firewall:
 ```console
-wget sprocket.link/eubnt -qO easy-ubnt.sh && sudo bash easy-ubnt.sh -aqd unifi.fqdn.com
+wget https://raw.githubusercontent.com/sprockteam/ubi-tools/master/easy-ubnt.sh -qO easy-ubnt.sh && sudo bash easy-ubnt.sh -aqd unifi.fqdn.com
 ```
 
 ### Script Logging
