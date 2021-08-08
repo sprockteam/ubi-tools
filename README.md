@@ -11,7 +11,7 @@ sudo bash easy-ubnt.sh
   This script currently requires root access.
 
   Usage:
-  sudo bash ${__script_name}.sh [options]
+  sudo bash easy-ubnt.sh [options]
 
   Options:
   -a          Accept and skip the license agreement screen
